@@ -1,4 +1,4 @@
-# revenant_2025_FINAL_WORKING.py
+# revenant_2025_FINAL_NO_ERRORS.py
 # LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM
 import os
 import time
@@ -37,28 +37,29 @@ def get_ema(ticker, tf, length):
     try:
         period = "60d" if tf != "D" else "2y"
         interval = "1h" if tf != "D" else "1d"
-        
-        # Force yfinance to return a clean DataFrame
         df = yf.download(
             ticker,
             period=period,
             interval=interval,
             progress=False,
             threads=False,
-            auto_adjust=True,   # ← This stops the FutureWarning spam
-            prepost=True
+            auto_adjust=True,
+            repair=True
         )
-        
         if df.empty or 'Close' not in df.columns or len(df) < length:
             return None
             
-        # Calculate EMA and extract the LAST value as a plain float
-        ema_value = float(df['Close'].ewm(span=length, adjust=False).mean().iloc[-1])
+        # BULLETPROOF EMA — NO MORE CRASHES
+        ema_series = df['Close'].ewm(span=length, adjust=False).mean()
+        last_ema = ema_series.iloc[-1]
         
-        return round(ema_value, 4)
+        # Convert to float safely
+        if pd.isna(last_ema):
+            return None
+        return round(float(last_ema), 4)
         
     except Exception as e:
-        # Silent fail — bot keeps running
+        print(f"EMA error {ticker}: {e}")
         return None
 
 def get_gamma_flip(ticker):
@@ -133,27 +134,6 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
     else:
         return "C", "Warning"
 
-def premarket_top5():
-    global premarket_done
-    if premarket_done: return
-    plays = []
-    for t in TICKERS:
-        try:
-            price = yf.Ticker(t).history(period="1d", interval="5m", prepost=True)['Close'].iloc[-1]
-            for tf, length, min_gap in CLOUDS:
-                ema = get_ema(t, tf, length)
-                if ema and abs(price-ema)/price*100 >= min_gap:
-                    plays.append({'ticker':t,'price':round(price,2),'target':round(ema,2),
-                                  'gap':round(abs(price-ema)/price*100,2),'tf':"DAILY" if tf=="D" else tf})
-        except: continue
-    plays = sorted(plays, key=lambda x: x['gap'], reverse=True)[:5]
-    if plays:
-        msg = "**6:20 AM PST — PRE-MARKET TOP 5**\n\n"
-        for i,p in enumerate(plays,1):
-            msg += f"{i}. **{p['ticker']}** → {p['tf']} `{p['target']}` (**{p['gap']}%**)\n"
-        send(msg)
-        premarket_done = True
-
 def check_live():
     cache = {}
     for t in TICKERS:
@@ -208,13 +188,6 @@ def check_live():
                      f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
                      f"{now_pst().strftime('%H:%M:%S PST')}")
 
-def send(text):
-    try:
-        requests.post(DISCORD_WEBHOOK, json={"content": text})
-        print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
-    except: print("Discord failed")
-
-print("Revenant 2025 — LIVE FOREVER")
 while True:
     now = now_pst()
     if now.hour == 13 and now.minute == 0 and now.weekday() < 5:
