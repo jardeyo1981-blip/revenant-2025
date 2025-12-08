@@ -1,5 +1,5 @@
-# revenant_2025_FINAL_OUTSIDE_THE_BOX.py
-# LIVE — 100% MASSIVE.COM — NO YFINANCE — NO ERRORS — PURE PROFIT
+# revenant_2025_FINAL_NO_CRASH.py
+# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + NO CRASHES
 import os
 import time
 import requests
@@ -12,11 +12,11 @@ MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
 if not MASSIVE_KEY or not DISCORD_WEBHOOK:
-    raise Exception("Missing secrets!")
+    raise Exception("Missing MASSIVE_API_KEY or DISCORD_WEBHOOK_URL!")
 
 client = RESTClient(api_key=MASSIVE_KEY)
 
-# === YOUR 50 TICKERS ===
+# === 50 TICKERS ===
 TICKERS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL','SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM','ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX','TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU','CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP']
 
 CLOUDS = [("D",50,2.8), ("240",50,2.2), ("60",50,1.8), ("30",50,1.5)]
@@ -24,12 +24,13 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 
 sent_alerts = set()
 premarket_done = False
+last_daily_report = None
 pst = pytz.timezone('America/Los_Angeles')
 
 def now_pst():
     return datetime.now(pst)
 
-# 100% MASSIVE.COM EMA — NO YFINANCE, NO PANDAS, NO CRASH
+# BULLETPROOF EMA — NO YFINANCE, NO PANDAS, NO CRASH
 def get_price_and_ema(ticker, tf, length):
     try:
         multiplier = {"D":1, "240":240, "60":60, "30":30}[tf]
@@ -106,7 +107,7 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
         elif value_ratio <= 25: score *= 1.7
         elif value_ratio <= 40: score *= 1.4
 
-    if score >= 10.Concurrent and value_ratio <= 15:
+    if score >= 10.0 and value_ratio <= 15:
         return "A++", "Gorilla"
     elif score >= 8.0:
         return "A+", "Skull"
@@ -122,7 +123,7 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
 def check_live():
     for ticker in TICKERS:
         gamma = get_gamma_flip(ticker)
-        gamma_text = f"Gamma Flip ${gamma" if gamma else "No confluence"
+        gamma_text = f"Gamma Flip ${gamma}" if gamma else "No confluence"
 
         for tf, length, min_gap in CLOUDS:
             price, ema = get_price_and_ema(ticker, tf, length)
