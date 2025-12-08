@@ -1,5 +1,5 @@
-# revenant_2025_final_PERFECT.py
-# LIVE — EXACT BTC-BOT STYLE + PROFIT % + NO ERRORS
+# revenant_2025_final_FIXED.py
+# LIVE — NO ERRORS — MASSIVE.COM + GREEN/RED + PROFIT % + POST-MORTEM
 import os
 import time
 import requests
@@ -8,14 +8,13 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
-import random
 
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
 if not MASSIVE_KEY or not DISCORD_WEBHOOK:
-    raise Exception("Missing MASSIVE_API_KEY or DISCORD_WEBHOOK_URL!")
+    raise Exception("Missing secrets!")
 
 client = RESTClient(api_key=MASSIVE_KEY)
 
@@ -37,7 +36,7 @@ def get_ema(ticker, tf, length):
     try:
         period = "60d" if tf != "D" else "2y"
         interval = "1h" if tf != "D" else "1d"
-        df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
+        df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False, auto_adjust=True)
         if len(df) < length: return None
         return round(df['Close'].ewm(span=length, adjust=False).mean().iloc[-1], 4)
     except: return None
@@ -107,8 +106,8 @@ def check_live():
     cache = {}
     for t in TICKERS:
         try:
-            df = yf.download(t, period="2d", interval="5m", progress=False, threads=False)
-            if len(df)>=3: cache[t] = df
+            df = yf.download(t, period="2d", interval="5m", progress=False, threads=False, auto_adjust=True)
+            if len(df) >= 3: cache[t] = df
         except: pass
 
     for ticker, df in cache.items():
@@ -141,7 +140,7 @@ def check_live():
                      f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
                      f"{now_pst().strftime('%H:%M:%S PST')}")
 
-                daily_trades.append({"profit_pct": (profit_line.split('(')[1].split('%')[0] if "→" in profit_line else 0)})
+                daily_trades.append({"profit_pct": float(profit_line.split('(')[1].split('%')[0]) if "→" in profit_line else 0})
 
             elif (prev['High'] >= ema*(1+min_gap/100) and prev['Close'] > ema and
                   price <= ema and aid not in sent_alerts):
@@ -155,20 +154,19 @@ def check_live():
                      f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
                      f"{now_pst().strftime('%H:%M:%S PST')}")
 
-                daily_trades.append({"profit_pct": (profit_line.split('(')[1].split('%')[0] if "→" in profit_line else 0)})
+                daily_trades.append({"profit_pct": float(profit_line.split('(')[1].split('%')[0]) if "→" in profit_line else 0})
 
 def daily_postmortem():
     global last_daily_report
     today = now_pst().date()
     if last_daily_report == today or not daily_trades: return
 
-    # Sort by profit %
-    daily_trades.sort(key=lambda x: float(x["profit_pct"]), reverse=True)
+    daily_trades.sort(key=lambda x: x["profit_pct"], reverse=True)
 
     msg = f"**MARKET CLOSE POST-MORTEM — {today.strftime('%b %d')}**\n\n"
     total_pct = 0
     for trade in daily_trades:
-        pct = float(trade["profit_pct"])
+        pct = trade["profit_pct"]
         total_pct += pct
         msg += f"**+{pct:.0f}%**\n"
 
