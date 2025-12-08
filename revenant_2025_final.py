@@ -141,9 +141,4 @@ while True:
         premarket_done = False
         sent_alerts.clear()
     check_live()
-    time.sleep(300)        premarket_top5()
-    if now.hour == 0 and now.minute < 5:
-        premarket_done = False
-        sent_alerts.clear()
-    check_live()
     time.sleep(300)
