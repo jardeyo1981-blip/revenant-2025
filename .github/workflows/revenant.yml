@@ -1,24 +1,29 @@
 name: Revenant 2025 — LIVE FOREVER
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:      # Manual trigger
   schedule:
-    - cron: '0 13 * * 1-5'  # 6:20 AM PST every trading day (pre-market)
+    - cron: '20 13 * * 1-5'  # 6:20 AM PST every trading day
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 1440   # 24 hours max
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run bot
-        run: python revenant_2025_final.py
+
+      - name: Run bot FOREVER
+        run: |
+          python revenant_2025_final.py
         env:
           MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PYTHONUNBUFFERED: "1"   # ← THIS KEEPS LOGS FLOWING
+          PYTHONUNBUFFERED: "1"
