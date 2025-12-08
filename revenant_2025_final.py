@@ -27,7 +27,7 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 sent_alerts = set()
 last_test = 0
 premarket_sent = False
-TEST_MODE = True                    # ← SET TO False FOR LIVE
+TEST_MODE = False                    # ← SET TO False FOR LIVE
 TEST_INTERVAL = 120                 # 2 minutes
 
 pst = pytz.timezone('America/Los_Angeles')
