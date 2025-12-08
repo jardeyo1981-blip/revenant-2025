@@ -1,9 +1,9 @@
 # revenant_2025_FINAL_PERFECT.py
-# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + NO CRASHES
+# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM
 import os
 import time
 import requests
-import yfinance as yfinance as yf
+import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 import pytz
@@ -33,21 +33,20 @@ pst = pytz.timezone('America/Los_Angeles')
 def now_pst():
     return datetime.now(pst)
 
-# BULLETPROOF EMA — NO SCIpy, NO PANDAS CRASH
 def get_ema(ticker, tf, length):
     try:
         period = "60d" if tf != "D" else "2y"
         interval = "1h" if tf != "D" else "1d"
         df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False, auto_adjust=True)
-        if df.empty or len(df) < length:
+        if df.empty or 'Close' not in df.columns or len(df) < length:
             return None
-        close_prices = df['Close'].values
-        ema = [close_prices[0]]
-        k = 2 / (length + 1)
-        for price in close_prices[1:]:
-            ema.append(price * k + ema[-1] * (1 - k))
-        return round(ema[-1], 4)
-    except:
+        ema_series = df['Close'].ewm(span=length, adjust=False).mean()
+        last_ema = ema_series.iloc[-1]
+        if pd.isna(last_ema):
+            return None
+        return round(float(last_ema), 4)
+    except Exception as e:
+        print(f"EMA error {ticker}: {e}")
         return None
 
 def get_gamma_flip(ticker):
@@ -140,8 +139,6 @@ def check_live():
             if ema is None:
                 continue
 
-            continue
-
             gap_pct = abs(price - ema) / price * 100
             aid = f"{ticker}_{tf}_{now_pst().date()}"
 
@@ -177,13 +174,6 @@ def check_live():
                      f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
                      f"{now_pst().strftime('%H:%M:%S PST')}")
 
-def send(text):
-    try:
-        requests.post(DISCORD_WEBHOOK, json={"content": text})
-        print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
-    except: print("Discord failed")
-
-print("Revenant 2025 — LIVE FOREVER")
 while True:
     now = now_pst()
     if now.hour == 13 and now.minute == 0 and now.weekday() < 5:
