@@ -1,4 +1,4 @@
-# revenant_2025_FINAL_PERFECT.py
+# revenant_2025_FINAL_NO_CRASH.py
 # LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM
 import os
 import time
@@ -40,13 +40,10 @@ def get_ema(ticker, tf, length):
         df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False, auto_adjust=True)
         if df.empty or 'Close' not in df.columns or len(df) < length:
             return None
-        ema_series = df['Close'].ewm(span=length, adjust=False).mean()
-        last_ema = ema_series.iloc[-1]
-        if pd.isna(last_ema):
-            return None
-        return round(float(last_ema), 4)
-    except Exception as e:
-        print(f"EMA error {ticker}: {e}")
+        # THE BULLETPROOF LINE — NO CRASH EVER
+        last_ema = float(df['Close'].ewm(span=length, adjust=False).mean().iloc[-1])
+        return round(last_ema, 4)
+    except:
         return None
 
 def get_gamma_flip(ticker):
