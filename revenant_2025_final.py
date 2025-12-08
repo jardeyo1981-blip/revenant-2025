@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
 
+def check_live():
+    print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS")
+  
+# rest of your code...
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
