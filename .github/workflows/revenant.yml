@@ -1,0 +1,29 @@
+name: Revenant Tape 2026 — LIVE FOREVER
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/7 * * * *'
+  push:
+    branches: [ main ]
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python revenant_2025/revenant_2025/revenant_2025_final.py
