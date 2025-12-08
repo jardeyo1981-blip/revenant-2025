@@ -1,11 +1,11 @@
-# revenant_2025_SEXY_FINAL.py
-# GREEN LONG / RED SHORT + EMOJIS + TEST MODE (2-min alerts + fake pre-market)
+# revenant_2025_FINAL_WITH_PROFIT.py
+# PERFECT BTC-BOT STYLE + EXPECTED PROFIT + GREEN/RED + TEST MODE
 import os
 import time
 import requests
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
 import random
@@ -27,7 +27,7 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 sent_alerts = set()
 last_test = 0
 premarket_sent = False
-TEST_MODE = True                    # ← SET TO False TO GO LIVE
+TEST_MODE = True                    # ← SET TO False FOR LIVE
 TEST_INTERVAL = 120                 # 2 minutes
 
 pst = pytz.timezone('America/Los_Angeles')
@@ -35,18 +35,11 @@ pst = pytz.timezone('America/Los_Angeles')
 def now_pst():
     return datetime.now(pst)
 
-def send_embed(title, color, fields):
-    embed = {
-        "title": title,
-        "color": color,
-        "fields": fields,
-        "timestamp": datetime.utcnow().isoformat(),
-        "footer": {"text": "Revenant 2025"}
-    }
-    payload = {"embeds": [embed]}
+def send(text):
+    payload = {"content": text}
     try:
         requests.post(DISCORD_WEBHOOK, json=payload)
-        print(f"{now_pst().strftime('%H:%M PST')} → {title}")
+        print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
     except: print("Discord failed")
 
 # TEST MODE — 2-minute fake alerts + fake pre-market
@@ -56,35 +49,55 @@ def test_mode():
         return
     last_test = time.time()
 
-    # Fake pre-market at startup
     if not premarket_sent:
         send("**6:20 AM PST — PRE-MARKET TOP 5**\n\n"
              "1. NVDA → DAILY `188.20` (**+4.2%**) 🌙\n"
              "2. TSLA → 4H `442.10` (**-3.1%**) 🔥\n"
              "3. SMCI → 1H `445.60` (**+3.8%**) 🚀\n"
              "4. SPY → DAILY `698.50` (**+2.1%**) 💵\n"
-             "5. QQQ → 1H `188.20` (**+2.9%**) ⭐")
+             "5. QQQ → 1H `610.00` (**-2.5%**) ⭐")
         premarket_sent = True
 
-    # Rotating fake alerts
     examples = [
-        ("DAILY LONG NVDA 🌙", 0x00ff00, "185 @ $0.52", "+$1,248 (+240%)", "2h – 6h"),
-        ("60 SHORT TSLA 🔥", 0xff0000, "450 @ $0.68", "+$962 (+141%)", "30min – 1h45m"),
-        ("30 LONG AMD 🚀", 0x00ff00, "175 @ $0.59", "+$1,020 (+173%)", "15min – 45min"),
-        ("4H LONG SPY 💵", 0x00ff00, "690 @ $0.78", "+$1,456 (+187%)", "1h – 3h"),
-        ("DAILY SHORT QQQ ⭐", 0xff0000, "620 @ $0.81", "+$1,134 (+140%)", "2h – 6h")
+        ("DAILY LONG NVDA 🌙", "LONG", "`182.41` → `188.20` (+3.17%)", "Gamma Flip $185.00", "185 @ $0.52", "$0.52 → $2.18 (+319%)", "2h – 6h"),
+        ("60 SHORT TSLA 🔥", "SHORT", "`454.61` → `442.10` (-2.75%)", "No confluence", "450 @ $0.68", "$0.68 → $2.30 (+238%)", "30min – 1h45m"),
+        ("30 LONG AMD 🚀", "LONG", "`172.40` → `175.80` (+1.97%)", "Confluence!", "175 @ $0.59", "$0.59 → $1.81 (+207%)", "15min – 45min"),
+        ("4H LONG SPY 💵", "LONG", "`685.20` → `698.50` (+1.94%)", "Gamma Flip $690.00", "690 @ $0.78", "$0.78 → $2.34 (+200%)", "1h – 3h"),
+        ("DAILY SHORT QQQ ⭐", "SHORT", "`625.50` → `610.00` (-2.48%)", "Confluence!", "620 @ $0.81", "$0.81 → $2.67 (+230%)", "2h – 6h")
     ]
-    title, color, opt, profit, hold = random.choice(examples)
-    fields = [
-        {"name": "Entry → Target", "value": "`182.41` → `188.20` (+3.17%)", "inline": False},
-        {"name": "Gamma Flip", "value": "Confluence!", "inline": True},
-        {"name": "Contract", "value": opt, "inline": True},
-        {"name": "Profit if target hit", "value": profit, "inline": False},
-        {"name": "Hold", "value": hold, "inline": True}
-    ]
-    send_embed(title, color, fields)
+    title, direction, entry_target, gamma, opt, profit, hold = random.choice(examples)
+    color = "🟩" if direction == "LONG" else "🟥"
+    send(f"{color} **TEST MODE — {title}**\n\n"
+         f"**Entry → Target**\n{entry_target}\n\n"
+         f"**Gamma Flip**\n{gamma}\n\n"
+         f"**Option**\n{opt}\n\n"
+         f"**Profit if target hit**\n{profit}\n\n"
+         f"**Hold**\n{hold}")
+
+# LIVE ALERT — 100% LIKE YOUR BTC BOT + EXPECTED PROFIT
+def send_live_alert(tf, direction, ticker, price, target, gap_pct, gamma_text, opt, hold, profit_line):
+    tf_name = "DAILY" if tf == "D" else tf
+    color = "🟩" if direction == "LONG" else "🟥"
+    style = "BULLISH" if direction == "LONG" else "BEARISH"
+    
+    msg = f"{color} **{style}**\n" \
+          f"**{tf_name} {ticker}**\n\n" \
+          f"**Entry → Target**\n" \
+          f"`{price:.2f}` → `{target:.2f}` ({'+' if direction=='LONG' else '-'}{gap_pct:.2f}%)\n\n" \
+          f"**Gamma Flip**\n{gamma_text}\n\n" \
+          f"**Option**\n{opt}\n\n" \
+          f"**Profit if target hit**\n{profit_line}\n\n" \
+          f"**Hold**\n{hold}\n" \
+          f"{now_pst().strftime('%H:%M:%S PST')}"
+    
+    send(msg)
 
 # [All your real functions here — get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live]
+
+# Inside check_live() — replace send() calls with:
+# direction = "LONG" if price < ema else "SHORT"
+# profit_line = f"${prem:.2f} → ${new_price:.2f} (+{profit_pct:.0f}%)" if prem else "No <$1 contract"
+# send_live_alert(tf, direction, ticker, price, ema, gap_pct, gamma_text, opt, ESTIMATED_HOLD[tf], profit_line)
 
 while True:
     if TEST_MODE:
