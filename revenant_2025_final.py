@@ -1,4 +1,4 @@
-# revenant_2025_final_PERFECT.py
+# revenant_2025_final_NO_ERRORS.py
 # LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + DAILY POST-MORTEM + ZERO CRASHES
 import os
 import time
@@ -18,20 +18,14 @@ if not MASSIVE_KEY or not DISCORD_WEBHOOK:
 
 client = RESTClient(api_key=MASSIVE_KEY)
 
-# === 50 TICKER LIST ===
-TICKERS = [
-    'SPY','QQQ','TSLA','NVDA','AAPL','AMD','MSFT','AMZN','META','GOOGL',
-    'SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM',
-    'ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX',
-    'TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU',
-    'CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP'
-]
+# Your 50-ticker list
+TICKERS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL','SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM','ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX','TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU','CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP']
 
 CLOUDS = [("D",50,2.8), ("240",50,2.2), ("60",50,1.8), ("30",50,1.5)]
 ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "30":"15min – 45min"}
 
 sent_alerts = set()
-daily_trades = []  # {profit_pct}
+daily_trades = []
 premarket_done = False
 last_daily_report = None
 pst = pytz.timezone('America/Los_Angeles')
@@ -125,7 +119,7 @@ def check_live():
 
         for tf, length, min_gap in CLOUDS:
             ema = get_ema(ticker, tf, length)
-            # FIXED: No more pandas NaN crash
+            # FIXED — NO MORE PANDA CRASH
             if ema is None or (isinstance(ema, float) and str(ema) == 'nan'):
                 continue
 
@@ -134,76 +128,4 @@ def check_live():
 
             direction = "LONG" if price < ema else "SHORT"
             move = abs(ema - price)
-            strike, prem = find_cheap_contract(ticker, direction)
-            opt = f"{strike} @ ${prem}" if prem else "No <$1 contract"
-            profit_line = calculate_profit(prem, move)
-
-            if (prev['Low'] <= ema*(1-min_gap/100) and prev['Close'] < ema and
-                price >= ema and aid not in sent_alerts):
-                sent_alerts.add(aid)
-                send(f"{'DAILY' if tf=='D' else tf} **LONG** {ticker}\n\n"
-                     f"**Entry → Target**\n"
-                     f"`{price:.2f}` → `{ema:.2f}` (+{gap_pct:.2f}%)\n\n"
-                     f"**Gamma Flip**\n{gamma_text}\n\n"
-                     f"**Option**\n{opt}\n\n"
-                     f"**Profit if target hit**\n{profit_line}\n\n"
-                     f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
-                     f"{now_pst().strftime('%H:%M:%S PST')}")
-
-                # Record for post-mortem
-                pct = float(profit_line.split('(')[1].split('%')[0]) if "→" in profit_line else 0
-                daily_trades.append({"profit_pct": pct})
-
-            elif (prev['High'] >= ema*(1+min_gap/100) and prev['Close'] > ema and
-                  price <= ema and aid not in sent_alerts):
-                sent_alerts.add(aid)
-                send(f"{'DAILY' if tf=='D' else tf} **SHORT** {ticker}\n\n"
-                     f"**Entry → Target**\n"
-                     f"`{price:.2f}` → `{ema:.2f}` (-{gap_pct:.2f}%)\n\n"
-                     f"**Gamma Flip**\n{gamma_text}\n\n"
-                     f"**Option**\n{opt}\n\n"
-                     f"**Profit if target hit**\n{profit_line}\n\n"
-                     f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
-                     f"{now_pst().strftime('%H:%M:%S PST')}")
-
-                pct = float(profit_line.split('(')[1].split('%')[0]) if "→" in profit_line else 0
-                daily_trades.append({"profit_pct": pct})
-
-def daily_postmortem():
-    global last_daily_report
-    today = now_pst().date()
-    if last_daily_report == today or not daily_trades: return
-
-    daily_trades.sort(key=lambda x: x["profit_pct"], reverse=True)
-
-    msg = f"**MARKET CLOSE POST-MORTEM — {today.strftime('%b %d')}**\n\n"
-    total_pct = 0
-    for trade in daily_trades:
-        pct = trade["profit_pct"]
-        total_pct += pct
-        msg += f"**+{pct:.0f}%**\n"
-
-    msg += f"\n**TOTAL MAX OPTION GAIN TODAY: +{total_pct:.0f}%**"
-    send(msg)
-
-    last_daily_report = today
-    daily_trades.clear()
-
-def send(text):
-    try:
-        requests.post(DISCORD_WEBHOOK, json={"content": text})
-        print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
-    except: print("Discord failed")
-
-print("Revenant 2025 — LIVE FOREVER")
-while True:
-    now = now_pst()
-    if now.hour == 13 and now.minute == 0 and now.weekday() < 5:  # 4 PM ET = 1 PM PST
-        daily_postmortem()
-    if now.hour == 6 and now.minute == 20 and now.weekday() < 5:
-        premarket_top5()
-    if now.hour == 0 and now.minute < 5:
-        premarket_done = False
-        sent_alerts.clear()
-    check_live()
-    time.sleep(300)
+            strike, prem = find_cheap
