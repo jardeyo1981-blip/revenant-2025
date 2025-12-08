@@ -214,3 +214,5 @@ while True:
         sent_alerts.clear()
     check_live()
     time.sleep(300)
+
+send("REVENANT 2025 — BOT IS ALIVE — TEST MESSAGE — " + now_pst().strftime('%H:%M:%S PST'))
