@@ -1,9 +1,10 @@
-# revenant_2025_FINAL_WORKING.py
-# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM + ZERO CRASHES
+# revenant_2025_FINAL_PERFECT.py
+# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM + NO CRASHES
 import os
 import time
 import requests
 import yfinance as yf
+import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
@@ -19,7 +20,13 @@ if not MASSIVE_KEY or not DISCORD_WEBHOOK:
 client = RESTClient(api_key=MASSIVE_KEY)
 
 # === 50 TICKERS ===
-TICKERS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL','SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM','ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX','TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU','CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP']
+TICKERS = [
+    'SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL',
+    'SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM',
+    'ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX',
+    'TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU',
+    'CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP'
+]
 
 CLOUDS = [("D",50,2.8), ("240",50,2.2), ("60",50,1.8), ("30",50,1.5)]
 ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "30":"15min – 45min"}
@@ -38,10 +45,15 @@ def get_ema(ticker, tf, length):
         period = "60d" if tf != "D" else "2y"
         interval = "1h" if tf != "D" else "1d"
         df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
-        if df.empty or len(df) < length: return None
-        ema_val = df['Close'].ewm(span=length, adjust=False).mean().iloc[-1]
-        return round(ema_val, 4) if not math.isnan(ema_val) else None
-    except: return None
+        if df.empty or len(df) < length:
+            return None
+        ema_series = df['Close'].ewm(span=length, adjust=False).mean()
+        last_ema = ema_series.iloc[-1]
+        if pd.isna(last_ema):
+            return None
+        return round(last_ema, 4)
+    except:
+        return None
 
 def get_gamma_flip(ticker):
     try:
@@ -55,8 +67,10 @@ def get_gamma_flip(ticker):
         for c in contracts:
             oi = c.open_interest or 0
             strikes[c.strike_price] = strikes.get(c.strike_price, 0) + oi
-        if strikes: return max(strikes, key=strikes.get)
-    except: pass
+        if strikes:
+            return max(strikes, key=strikes.get)
+    except:
+        pass
     return None
 
 def find_cheap_contract(ticker, direction):
@@ -72,11 +86,13 @@ def find_cheap_contract(ticker, direction):
             quote = client.get_last_trade(c.ticker)
             if quote and quote.price and quote.price <= 1.00:
                 return c.strike_price, round(quote.price, 2)
-    except: pass
+    except:
+        pass
     return None, None
 
 def calculate_profit(prem, underlying_move):
-    if not prem or underlying_move <= 0: return "No <$1 contract", 0
+    if not prem or underlying_move <= 0:
+        return "No <$1 contract", 0
     delta = 0.35
     profit = underlying_move * delta * 100
     new_price = prem + (profit / 100)
@@ -91,7 +107,7 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
     elif prem <= 0.80: score *= 1.3
     elif prem <= 1.00: score *= 1.1
 
-    # VALUE SCORE: % of target you're paying for
+    # VALUE SCORE
     if prem and profit_pct > 0:
         value_ratio = (prem * 100) / profit_pct
         if value_ratio <= 15: score *= 2.0
@@ -99,17 +115,38 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
         elif value_ratio <= 40: score *= 1.4
 
     if score >= 10.0 and value_ratio <= 15:
-        return "A++", "🦍"
+        return "A++", "Gorilla"
     elif score >= 8.0:
-        return "A+", "💀"
+        return "A+", "Skull"
     elif score >= 5.5:
-        return "A", "🔥"
+        return "A", "Fire"
     elif score >= 3.5:
-        return "B+", "⚡"
+        return "B+", "Lightning"
     elif score >= 2.0:
-        return "B", "✅"
+        return "B", "Check"
     else:
-        return "C", "⚠️"
+        return "C", "Warning"
+
+def premarket_top5():
+    global premarket_done
+    if premarket_done: return
+    plays = []
+    for t in TICKERS:
+        try:
+            price = yf.Ticker(t).history(period="1d", interval="5m", prepost=True)['Close'].iloc[-1]
+            for tf, length, min_gap in CLOUDS:
+                ema = get_ema(t, tf, length)
+                if ema and abs(price-ema)/price*100 >= min_gap:
+                    plays.append({'ticker':t,'price':round(price,2),'target':round(ema,2),
+                                  'gap':round(abs(price-ema)/price*100,2),'tf':"DAILY" if tf=="D" else tf})
+        except: continue
+    plays = sorted(plays, key=lambda x: x['gap'], reverse=True)[:5]
+    if plays:
+        msg = "**6:20 AM PST — PRE-MARKET TOP 5**\n\n"
+        for i,p in enumerate(plays,1):
+            msg += f"{i}. **{p['ticker']}** → {p['tf']} `{p['target']}` (**{p['gap']}%**)\n"
+        send(msg)
+        premarket_done = True
 
 def check_live():
     cache = {}
@@ -127,7 +164,7 @@ def check_live():
 
         for tf, length, min_gap in CLOUDS:
             ema = get_ema(ticker, tf, length)
-            if ema is None or math.isnan(ema):
+            if ema is None:
                 continue
 
             gap_pct = abs(price-ema)/price*100
@@ -145,36 +182,4 @@ def check_live():
                 price >= ema and aid not in sent_alerts):
                 sent_alerts.add(aid)
                 send(f"{emoji} **{grade} {direction} {ticker}** ({'DAILY' if tf=='D' else tf})\n\n"
-                     f"**Entry → Target**\n"
-                     f"`{price:.2f}` → `{ema:.2f}` ({'+' if direction=='LONG' else '-'}{gap_pct:.2f}%)\n\n"
-                     f"**Gamma Flip**\n{gamma_text}\n\n"
-                     f"**Option**\n{opt}\n\n"
-                     f"**Profit if target hit**\n{profit_line}\n\n"
-                     f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
-                     f"{now_pst().strftime('%H:%M:%S PST')}")
-
-            elif (prev['High'] >= ema*(1+min_gap/100) and prev['Close'] > ema and
-                  price <= ema and aid not in sent_alerts):
-                sent_alerts.add(aid)
-                send(f"{emoji} **{grade} {direction} {ticker}** ({'DAILY' if tf=='D' else tf})\n\n"
-                     f"**Entry → Target**\n"
-                     f"`{price:.2f}` → `{ema:.2f}` (-{gap_pct:.2f}%)\n\n"
-                     f"**Gamma Flip**\n{gamma_text}\n\n"
-                     f"**Option**\n{opt}\n\n"
-                     f"**Profit if target hit**\n{profit_line}\n\n"
-                     f"**Hold**\n{ESTIMATED_HOLD[tf]}\n"
-                     f"{now_pst().strftime('%H:%M:%S PST')}")
-
-# [rest of your functions unchanged]
-
-while True:
-    now = now_pst()
-    if now.hour == 13 and now.minute == 0 and now.weekday() < 5:
-        daily_postmortem()
-    if now.hour == 6 and now.minute == 20 and now.weekday() < 5:
-        premarket_top5()
-    if now.hour == 0 and now.minute < 5:
-        premarket_done = False
-        sent_alerts.clear()
-    check_live()
-    time.sleep(300)
+                     f"**Entry → Target**\n
