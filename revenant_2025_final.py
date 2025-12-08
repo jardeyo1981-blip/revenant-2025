@@ -37,16 +37,28 @@ def get_ema(ticker, tf, length):
     try:
         period = "60d" if tf != "D" else "2y"
         interval = "1h" if tf != "D" else "1d"
-        df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
-        if df.empty or len(df) < length:
+        
+        # Force yfinance to return a clean DataFrame
+        df = yf.download(
+            ticker,
+            period=period,
+            interval=interval,
+            progress=False,
+            threads=False,
+            auto_adjust=True,   # ← This stops the FutureWarning spam
+            prepost=True
+        )
+        
+        if df.empty or 'Close' not in df.columns or len(df) < length:
             return None
-        # THIS IS THE FIX — .iloc[-1] turns Series into a single float
-        last_ema = df['Close'].ewm(span=length, adjust=False).mean().iloc[-1]
-        if pd.isna(last_ema):
-            return None
-        return round(last_ema, 4)
+            
+        # Calculate EMA and extract the LAST value as a plain float
+        ema_value = float(df['Close'].ewm(span=length, adjust=False).mean().iloc[-1])
+        
+        return round(ema_value, 4)
+        
     except Exception as e:
-        print(f"EMA error {ticker}: {e}")
+        # Silent fail — bot keeps running
         return None
 
 def get_gamma_flip(ticker):
