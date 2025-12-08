@@ -1,5 +1,5 @@
-# revenant_2025_FINAL_NO_CRASH.py
-# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + NO CRASHES
+# revenant_2025_OUTSIDE_THE_BOX.py
+# LIVE — 100% MASSIVE.COM — NO YFINANCE — NO PANDAS — NO ERRORS — PURE PROFIT
 import os
 import time
 import requests
@@ -12,7 +12,7 @@ MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
 if not MASSIVE_KEY or not DISCORD_WEBHOOK:
-    raise Exception("Missing MASSIVE_API_KEY or DISCORD_WEBHOOK_URL!")
+    raise Exception("Missing secrets!")
 
 client = RESTClient(api_key=MASSIVE_KEY)
 
@@ -30,7 +30,7 @@ pst = pytz.timezone('America/Los_Angeles')
 def now_pst():
     return datetime.now(pst)
 
-# BULLETPROOF EMA — NO YFINANCE, NO PANDAS, NO CRASH
+# 100% MASSIVE.COM EMA — NO YFINANCE, NO PANDAS, NO CRASH
 def get_price_and_ema(ticker, tf, length):
     try:
         multiplier = {"D":1, "240":240, "60":60, "30":30}[tf]
