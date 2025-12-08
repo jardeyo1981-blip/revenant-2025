@@ -26,4 +26,4 @@ jobs:
         env:
           MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python revenant_2025/revenant_2025/revenant_2025_final.py
+        run: python revenant_2025_final.py
