@@ -1,5 +1,5 @@
 # revenant_2025_final_PERFECT.py
-# EXACTLY LIKE YOUR PHOTO — NO HEARTBEAT — TEST MODE CLEAN
+# EXACTLY LIKE YOUR PHOTO — NO HEARTBEAT — CLEAN & CONSISTENT
 import os
 import time
 import requests
@@ -25,8 +25,8 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 
 sent_alerts = set()
 premarket_done = False
-last_test_alert = 0
-TEST_MODE = True                    # ← SET TO False TO GO LIVE
+last_test = 0
+TEST_MODE = True                    # ← SET TO False FOR LIVE
 pst = pytz.timezone('America/Los_Angeles')
 
 def now_pst():
@@ -40,24 +40,25 @@ def send(text):
     except:
         print("Discord failed")
 
-# TEST MODE — Every 5 minutes, exact photo format
+# TEST MODE — Every 5 minutes, EXACT photo format
 def test_mode():
-    global last_test_alert
-    if time.time() - last_test_alert < 300:
+    global last_test
+    if time.time() - last_test < 300:
         return
-    last_test_alert = time.time()
+    last_test = time.time()
 
     examples = [
         "TEST MODE — 4H LONG SPY\n\n**Entry → Target**\n`182.41` → `188.20` (+3.17%)\n\n**Confluence**\nGamma: 185.00\n\n**Option**\n185 @ $0.72\n\n**Hold**\n30min – 1h45m",
         "TEST MODE — DAILY LONG NVDA\n\n**Entry → Target**\n`182.41` → `188.20` (+3.17%)\n\n**Confluence**\nConfluence!\n\n**Option**\n185 @ $0.72\n\n**Hold**\n2h – 6h",
-        "TEST MODE — 60 SHORT TSLA\n\n**Entry → Target**\n`454.61` → `442.10` (-2.75%)\n\n**Confluence**\nGamma: 450.00\n\n**Option**\n450 @ $0.68\n\n**Hold**\n30min – 1h45m"
+        "TEST MODE — 60 SHORT TSLA\n\n**Entry → Target**\n`454.61` → `442.10` (-2.75%)\n\n**Confluence**\nGamma: 450.00\n\n**Option**\n450 @ $0.68\n\n**Hold**\n30min – 1h45m",
+        "TEST MODE — 30 LONG AMD\n\n**Entry → Target**\n`172.40` → `175.80` (+1.97%)\n\n**Confluence**\nConfluence!\n\n**Option**\n175 @ $0.59\n\n**Hold**\n15min – 45min"
     ]
     send(random.choice(examples))
 
-# REAL ALERT FORMAT — EXACTLY LIKE YOUR PHOTO
-def send_live_alert(direction, ticker, tf, price, target, gap_pct, conf, opt, hold):
-    title = f"{'DAILY' if tf=='D' else tf} {direction} {ticker}"
-    msg = f"{title}\n\n" \
+# LIVE ALERT — EXACTLY LIKE YOUR PHOTO
+def send_live_alert(tf, direction, ticker, price, target, gap_pct, conf, opt, hold):
+    tf_name = "DAILY" if tf == "D" else tf
+    msg = f"TEST MODE — {tf_name} {direction} {ticker}\n\n" \
           f"**Entry → Target**\n" \
           f"`{price:.2f}` → `{target:.2f}` ({'+' if direction=='LONG' else '-'}{gap_pct:.2f}%)\n\n" \
           f"**Confluence**\n{conf}\n\n" \
@@ -65,8 +66,9 @@ def send_live_alert(direction, ticker, tf, price, target, gap_pct, conf, opt, ho
           f"**Hold**\n{hold}"
     send(msg)
 
-# [Your full get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live functions here]
-# Inside check_live() — replace send() calls with send_live_alert()
+# [All your functions: get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live]
+# Inside check_live() — replace send() calls with:
+# send_live_alert(tf, "LONG" or "SHORT", ticker, price, ema, gap_pct, conf, opt, ESTIMATED_HOLD[tf])
 
 while True:
     if TEST_MODE:
