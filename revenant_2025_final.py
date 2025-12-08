@@ -1,4 +1,5 @@
-# revenant_2025_final.py — GREEN/RED EMBEDS + TEST MODE
+# revenant_2025_final_PERFECT.py
+# EXACTLY LIKE YOUR PHOTO — NO HEARTBEAT — TEST MODE CLEAN
 import os
 import time
 import requests
@@ -14,7 +15,7 @@ MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
 if not MASSIVE_KEY or not DISCORD_WEBHOOK:
-    raise Exception("Missing MASSIVE_API_KEY or DISCORD_WEBHOOK_URL!")
+    raise Exception("Missing secrets!")
 
 client = RESTClient(api_key=MASSIVE_KEY)
 
@@ -24,54 +25,49 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 
 sent_alerts = set()
 premarket_done = False
-last_test = 0
+last_test_alert = 0
+TEST_MODE = True                    # ← SET TO False TO GO LIVE
 pst = pytz.timezone('America/Los_Angeles')
-
-# === TEST MODE ===
-TEST_MODE = True                    # ← SET TO False WHEN READY TO GO LIVE
-TEST_INTERVAL = 300                 # 5 minutes
-
-FAKE_ALERTS = [
-    ("DAILY LONG NVDA", "LONG", 0x00ff00),
-    ("60 SHORT TSLA", "SHORT", 0xff0000),
-    ("30 LONG AMD", "LONG", 0x00ff00),
-    ("4H LONG SPY", "LONG", 0x00ff00),
-    ("DAILY SHORT QQQ", "SHORT", 0xff0000)
-]
 
 def now_pst():
     return datetime.now(pst)
 
-def send_embed(title, color, fields):
-    embed = {
-        "title": title,
-        "color": color,
-        "fields": fields,
-        "timestamp": datetime.utcnow().isoformat(),
-        "footer": {"text": "Revenant 2025"}
-    }
-    payload = {"embeds": [embed]}
+def send(text):
+    payload = {"content": text}
     try:
         requests.post(DISCORD_WEBHOOK, json=payload)
-        print(f"{now_pst().strftime('%H:%M PST')} → {title}")
-    except: print("Discord failed")
+        print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
+    except:
+        print("Discord failed")
 
+# TEST MODE — Every 5 minutes, exact photo format
 def test_mode():
-    global last_test
-    if time.time() - last_test >= TEST_INTERVAL:
-        title, direction, color = random.choice(FAKE_ALERTS)
-        fields = [
-            {"name": "Entry → Target", "value": "`182.41` → `188.20` (+3.17%)", "inline": False},
-            {"name": "Confluence", "value": "Confluence!" if random.random() > 0.3 else "Gamma: 185.00", "inline": True},
-            {"name": "Option", "value": "185 @ $0.72" if random.random() > 0.2 else "No <$1 call", "inline": True},
-            {"name": "Hold", "value": random.choice(list(ESTIMATED_HOLD.values())), "inline": True}
-        ]
-        send_embed(f"**TEST MODE** — {title}", color, fields)
-        last_test = time.time()
+    global last_test_alert
+    if time.time() - last_test_alert < 300:
+        return
+    last_test_alert = time.time()
 
-# [Your full real functions here: get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live]
+    examples = [
+        "TEST MODE — 4H LONG SPY\n\n**Entry → Target**\n`182.41` → `188.20` (+3.17%)\n\n**Confluence**\nGamma: 185.00\n\n**Option**\n185 @ $0.72\n\n**Hold**\n30min – 1h45m",
+        "TEST MODE — DAILY LONG NVDA\n\n**Entry → Target**\n`182.41` → `188.20` (+3.17%)\n\n**Confluence**\nConfluence!\n\n**Option**\n185 @ $0.72\n\n**Hold**\n2h – 6h",
+        "TEST MODE — 60 SHORT TSLA\n\n**Entry → Target**\n`454.61` → `442.10` (-2.75%)\n\n**Confluence**\nGamma: 450.00\n\n**Option**\n450 @ $0.68\n\n**Hold**\n30min – 1h45m"
+    ]
+    send(random.choice(examples))
 
-print("Revenant 2025 — GREEN/RED EMBEDS + TEST MODE")
+# REAL ALERT FORMAT — EXACTLY LIKE YOUR PHOTO
+def send_live_alert(direction, ticker, tf, price, target, gap_pct, conf, opt, hold):
+    title = f"{'DAILY' if tf=='D' else tf} {direction} {ticker}"
+    msg = f"{title}\n\n" \
+          f"**Entry → Target**\n" \
+          f"`{price:.2f}` → `{target:.2f}` ({'+' if direction=='LONG' else '-'}{gap_pct:.2f}%)\n\n" \
+          f"**Confluence**\n{conf}\n\n" \
+          f"**Option**\n{opt}\n\n" \
+          f"**Hold**\n{hold}"
+    send(msg)
+
+# [Your full get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live functions here]
+# Inside check_live() — replace send() calls with send_live_alert()
+
 while True:
     if TEST_MODE:
         test_mode()
