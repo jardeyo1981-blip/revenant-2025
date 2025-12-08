@@ -1,4 +1,4 @@
-polygon
+polygon-api-client
 yfinance
 pytz
 requests
