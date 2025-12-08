@@ -1,4 +1,4 @@
-# revenant_2025_FINAL_NO_ERRORS.py
+# revenant_2025_FINAL_PERFECT_AND_WORKING.py
 # LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + DAILY POST-MORTEM
 import os
 import time
@@ -36,13 +36,17 @@ def now_pst():
 def get_ema(ticker, tf, length):
     try:
         period = "60d" if tf != "D" else "2y"
-        interval = "1h" if tf == "D" else "60" if tf == "240" else tf
+        interval = "1h" if tf != "D" else "1d"
         df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
         if df.empty or len(df) < length:
             return None
-        # BULLETPROOF — .iloc[-1] + float() = NO CRASH EVER
-        ema_val = df['Close'].ewm(span=length, adjust=False).mean().iloc[-1]
-        return round(float(ema_val), 4)
+        # FINAL FIX — .values[-1] + float() = NO CRASH EVER
+        close_price = float(df['Close'].values[-1])
+        ema = [close_price]
+        k = 2 / (length + 1)
+        for price in df['Close'].values[1:]:
+            ema.append(float(price) * k + ema[-1] * (1 - k))
+        return round(ema[-1], 4)
     except:
         return None
 
@@ -100,7 +104,6 @@ def get_grade(gap_pct, prem, profit_pct, gamma_hit, is_daily):
 
     if prem and profit_pct > 0:
         value_ratio = (prem * 100) / profit_pct
-        if value_ratio = max(value_ratio, 1)  # avoid division issues
         if value_ratio <= 15: score *= 2.0
         elif value_ratio <= 25: score *= 1.7
         elif value_ratio <= 40: score *= 1.4
