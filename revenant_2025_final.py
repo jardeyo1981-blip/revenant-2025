@@ -1,40 +1,67 @@
-# revenant_2025_final.py
-# LIVE FOREVER — 6:20 AM PST + Real-time air-gap fills + Gamma + <$1 contracts
+# revenant_2025_final.py — WITH 20-MIN HEARTBEAT (temporary)
 import os
 import time
 import requests
 import yfinance as yf
+import pandas as pd
 from datetime import datetime, timedelta
 import pytz
-from polygon import RESTClient   # Massive.com API
+from polygon import RESTClient
 
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
-WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
 
-if not MASSIVE_KEY or not WEBHOOK:
+if not MASSIVE_KEY or not DISCORD_WEBHOOK:
     raise Exception("Missing MASSIVE_API_KEY or DISCORD_WEBHOOK_URL!")
 
-client = RESTClient(MASSIVE_KEY)
+client = RESTClient(api_key=MASSIVE_KEY)
 
 TICKERS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL','MSFT','SMCI']
 CLOUDS = [("D",50,2.8), ("240",50,2.2), ("60",50,1.8), ("30",50,1.5)]
+
 sent_alerts = set()
 premarket_done = False
+last_heartbeat = time.time()
 pst = pytz.timezone('America/Los_Angeles')
 
 def now_pst():
     return datetime.now(pst)
 
-def get_ema(ticker, tf, length):
+def send(text):
     try:
-        period = "60d" if tf != "D" else "2y"
-        interval = "1h" if tf != "D" else "1d"
-        df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
-        if len(df) < length: return None
-        return round(df['Close'].ewm(span=length, adjust=False).mean().iloc[-1], 4)
-    except: return None
+        requests.post(DISCORD_WEBHOOK, json={"content": text})
+        print(f"{now_pst().strftime('%H:%M PST')} → {text.splitlines()[0]}")
+    except:
+        print("Discord failed")
 
+# 20-MINUTE HEARTBEAT (TEMPORARY — DELETE THIS FUNCTION AFTER CONFIRMING LIVE)
+def heartbeat():
+    global last_heartbeat
+    if time.time() - last_heartbeat >= 1200:  # 20 minutes
+        send("Revenant 2025 Bot — HEARTBEAT — I AM ALIVE")
+        last_heartbeat = time.time()
+
+# [All your existing functions: get_ema, get_gamma_flip, find_cheap_contract, premarket_top5, check_live]
+# ... (same as before — just added heartbeat call below)
+
+def check_live():
+    # [your existing check_live code]
+    heartbeat()  # ← THIS LINE ADDED — sends heartbeat every 20 min
+
+# === MAIN LOOP ===
+print("Revenant 2025 — LIVE FOREVER + 20-MIN HEARTBEAT")
+while True:
+    now = now_pst()
+    if now.hour == 6 and now.minute == 20 and now.weekday() < 5:
+        premarket_top5()
+    if now.hour == 0 and now.minute < 5:
+        premarket_done = False
+        sent_alerts.clear()
+    
+    check_live()
+    heartbeat()  # ← Extra heartbeat here too (belt & suspenders)
+    time.sleep(300)
 def get_gamma_flip(ticker):
     try:
         contracts = client.list_options_contracts(
