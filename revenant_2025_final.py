@@ -40,8 +40,8 @@ def get_ema(ticker, tf, length):
         df = yf.download(ticker, period=period, interval=interval, progress=False, threads=False)
         if df.empty or len(df) < length:
             return None
-        ema_series = df['Close'].ewm(span=length, adjust=False).mean()
-        last_ema = ema_series.iloc[-1]
+        # THIS IS THE FIX — .iloc[-1] turns Series into a single float
+        last_ema = df['Close'].ewm(span=length, adjust=False).mean().iloc[-1]
         if pd.isna(last_ema):
             return None
         return round(last_ema, 4)
