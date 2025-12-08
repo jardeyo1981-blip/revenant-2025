@@ -1,5 +1,5 @@
-# revenant_2025_FINAL_PERFECT_AND_ALIVE.py
-# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + NO CRASHES EVER
+# revenant_2025_FINAL_WORKING_NO_FREEZE.py
+# LIVE — MASSIVE.COM + GREEN/RED + PROFIT % + A++ GRADING + NO CRASHES + NO FREEZE
 import os
 import time
 import requests
@@ -24,6 +24,7 @@ ESTIMATED_HOLD = {"D":"2h – 6h", "240":"1h – 3h", "60":"30min – 1h45m", "3
 
 sent_alerts = set()
 premarket_done = False
+last_daily_report = None
 pst = pytz.timezone('America/Los_Angeles')
 
 def now_pst():
@@ -44,7 +45,7 @@ def get_price_and_ema(ticker, tf, length):
         k = 2 / (length + 1)
         for close in closes[1:]:
             ema = close * k + ema * (1 - k)
-        return round(price, 4), round(ema,  ema, 4)
+        return round(price, 4), round(ema, 4)
     except:
         return None, None
 
