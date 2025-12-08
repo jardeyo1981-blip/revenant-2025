@@ -1,11 +1,11 @@
-# revenant_2025_final_PERFECT.py
-# EXACTLY LIKE YOUR PHOTO — NO HEARTBEAT — CLEAN & CONSISTENT
+# revenant_2025_final_PERFECT_FORMATTING.py
+# EXACT PHOTO MATCH — NO VARIATIONS — NO HEARTBEAT — TEST MODE CLEAN
 import os
 import time
 import requests
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 from polygon import RESTClient
 import random
@@ -37,10 +37,9 @@ def send(text):
     try:
         requests.post(DISCORD_WEBHOOK, json=payload)
         print(f"{now_pst().strftime('%H:%M PST')} → Alert sent")
-    except:
-        print("Discord failed")
+    except: print("Discord failed")
 
-# TEST MODE — Every 5 minutes, EXACT photo format
+# TEST MODE — Every 5 minutes, 100% identical formatting
 def test_mode():
     global last_test
     if time.time() - last_test < 300:
@@ -55,12 +54,13 @@ def test_mode():
     ]
     send(random.choice(examples))
 
-# LIVE ALERT — EXACTLY LIKE YOUR PHOTO
+# LIVE ALERT — 100% CONSISTENT, EXACTLY LIKE YOUR PHOTO
 def send_live_alert(tf, direction, ticker, price, target, gap_pct, conf, opt, hold):
     tf_name = "DAILY" if tf == "D" else tf
-    msg = f"TEST MODE — {tf_name} {direction} {ticker}\n\n" \
+    sign = "+" if direction == "LONG" else "-"
+    msg = f"{tf_name} {direction} {ticker}\n\n" \
           f"**Entry → Target**\n" \
-          f"`{price:.2f}` → `{target:.2f}` ({'+' if direction=='LONG' else '-'}{gap_pct:.2f}%)\n\n" \
+          f"`{price:.2f}` → `{target:.2f}` ({sign}{gap_pct:.2f}%)\n\n" \
           f"**Confluence**\n{conf}\n\n" \
           f"**Option**\n{opt}\n\n" \
           f"**Hold**\n{hold}"
