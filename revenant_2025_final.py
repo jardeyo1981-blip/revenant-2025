@@ -13,15 +13,20 @@ def check_live():
     # Send forced test alerts every scan
     send_forced_test_alerts()
 
-    # FULL BYPASS for forced mode — loop forever 24/7
+    # FULL BYPASS for forced mode — loop forever 24/7, skip all guards
     if mode == 'forced':
         print(f"FORCED MODE ACTIVE — SCANNING 24/7 — {now_pst().strftime('%H:%M:%S PST')}")
-        # No guard — continue to scan/print (you can add fake scan logs here if wanted)
+        # Add a fake scan log so you see activity
+        print("FORCED MODE: Real scan skipped, but loop continues")
+        # NO return — continue to end of function and loop
     else:
         # Normal guard for live/normal mode
         if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
             time.sleep(300)
             return
+
+    # ... rest of real scan code (ATR cache, ticker loop, etc.)
+    # Even if this part returns early, in forced mode we already sent alerts and the loop will continue
 
     # ... rest of real scan code (ATR cache, ticker loop, etc.)
 # === SECRETS ===
