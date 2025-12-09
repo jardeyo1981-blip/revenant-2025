@@ -5,4 +5,4 @@
 #
 # Just edit this file and save/commit — the bot switches automatically within 5 minutes.
 # Current setting below:
-forced
+  off
