@@ -3,12 +3,12 @@ name: Revenant 2025 — LIVE FOREVER
 on:
   workflow_dispatch:      # Manual trigger
   schedule:
-    - cron: '30 13 * * 1-5'  # Every trading day at 6:30 AM PST
+    - cron: '30 13 * * 1-5'  # 6:30 AM PST every trading day
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 1440   # 24 hours
+    timeout-minutes: 1439   # Max 23h59m (GitHub free tier limit)
     steps:
       - uses: actions/checkout@v4
 
@@ -27,3 +27,4 @@ jobs:
           MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           PYTHONUNBUFFERED: "1"
+        timeout-minutes: 1439  # Per-step timeout too
