@@ -1,4 +1,5 @@
-# revenant_2025_final.py — THE ONE THAT PRINTED MONEY FLAWLESSLY
+# revenant_2025_final_with_scan_log.py
+# THE ONE THAT PRINTED MONEY — NOW WITH SCAN LOG BACK
 import os
 import time
 import requests
@@ -32,7 +33,7 @@ def send(msg):
         print(f"ALERT → {msg}")
     except: pass
 
-# PREV CLOSE CACHE (429 killer)
+# PREV CLOSE CACHE
 prev_close_cache = {}
 last_cache_date = None
 def get_prev_close(ticker):
@@ -106,6 +107,9 @@ while True:
         if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
             time.sleep(300)
             continue
+
+        # ← THIS IS THE LINE YOU WANT BACK
+        print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — no 429s")
 
         for ticker in TICKERS:
             prev = get_prev_close(ticker)
