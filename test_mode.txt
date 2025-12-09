@@ -1,0 +1,8 @@
+# test_mode.txt options:
+# forced   → Sends 7 fake test alerts every 5 minutes (great for testing message formats quickly)
+# normal   → Real alerts only, with "**TEST MODE** — " prefix (safe real scanning)
+# off      → Fully live mode: clean alerts, no prefix, no fake messages
+#
+# Just edit this file and save/commit — the bot switches automatically within 5 minutes.
+# Current setting below:
+forced
