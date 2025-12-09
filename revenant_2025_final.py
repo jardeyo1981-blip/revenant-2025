@@ -10,18 +10,20 @@ from polygon import RESTClient
 def check_live():
     mode = get_test_mode()
 
-    # Send forced test alerts every scan (even after hours)
+    # Send forced test alerts every scan
     send_forced_test_alerts()
 
-    # ONLY sleep and skip real scan after hours if NOT in forced mode
-    if mode != 'forced':
+    # FULL BYPASS for forced mode — loop forever 24/7
+    if mode == 'forced':
+        print(f"FORCED MODE ACTIVE — SCANNING 24/7 — {now_pst().strftime('%H:%M:%S PST')}")
+        # No guard — continue to scan/print (you can add fake scan logs here if wanted)
+    else:
+        # Normal guard for live/normal mode
         if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
             time.sleep(300)
             return
 
-    print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — FULL POWER")
-    # ... rest of your real scan code (ATR, ticker loop, etc.)
-
+    # ... rest of real scan code (ATR cache, ticker loop, etc.)
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
