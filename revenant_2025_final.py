@@ -1,5 +1,8 @@
-# revenant_2025_NUCLEAR_FINAL_EVERYTHING.py
-# THE ONE — 6 STRATEGIES — EOD RECAP — $0.70 CRUSH — PRINTS MONEY
+# ================================================================
+# REVENANT 9-STRAT NUCLEAR — FINAL FOREVER — ELITE 33 + OPTIONS % IN EOD
+# SHOWS REAL 0DTE CONTRACT P&L IN END-OF-DAY RECAP
+# ================================================================
+
 import os, time, requests
 from datetime import datetime, timedelta
 import pytz
@@ -7,125 +10,139 @@ from polygon import RESTClient
 
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
+if not MASSIVE_KEY or not DISCORD_WEBHOOK:
+    print("Set MASSIVE_API_KEY and DISCORD_WEBHOOK_URL!")
+    exit()
+
 client = RESTClient(api_key=MASSIVE_KEY)
 
-TICKERS = ['SPY','QQQ','IWM','NVDA','TSLA','AAPL','META','AMD','AMZN','GOOGL','SMCI','HOOD','SOXL','SOXS','NFLX','COIN','PLTR','TQQQ','SQQQ','IWM','ARM','AVGO','ASML','MRVL','MU','MARA','RIOT','MSTR','UPST','RBLX','TNA','TZA','LABU','LABD','NIO','XPEV','LI','BABA','PDD','BIDU','CRM','ADBE','ORCL','INTC','SNOW','NET','CRWD','ZS','PANW','SHOP']
+TICKERS = ["SPY","QQQ","IWM","NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN",
+           "AVGO","NFLX","AMZN","GOOGL","MSFT","ARM","SOXL","TQQQ","SQQQ","UVXY",
+           "XLF","XLE","XLK","XLV","XBI","ARKK","HOOD","PLTR","RBLX","SNOW","CRWD","SHOP"]
 
-MIN_GAP = 1.8
 MAX_PREMIUM = 0.70
-
-alerts_today = []
-eod_sent = False
-heartbeat_sent = False
-last_scan_time = 0
+alerts_today = {}   # Now stores: {key: {"ticker": t, "direction": dir, "entry_prem": prem, "contract": ticker}}
+eod_sent_today = False
+last_scan = 0
 
 pst = pytz.timezone('America/Los_Angeles')
-def now_pst(): return datetime.now(pst)
+def now(): return datetime.now(pst)
 
 def send(msg):
-    requests.post(DISCORD_WEBHOOK, json={"content": f"**Revenant NUCLEAR** | {now_pst().strftime('%H:%M PST')} ```{msg}```"}, timeout=10)
+    requests.post(DISCORD_WEBHOOK, json={"content": f"**REVENANT 9-STRAT NUCLEAR** | {now().strftime('%H:%M PST')}\n```{msg}```"}, timeout=10)
 
-# CACHES
-prev_close_cache = {}
-def get_prev_close(t):
-    global prev_close_cache
-    today = now_pst().date()
-    if t not in prev_close_cache:
-        try: prev_close_cache[t] = client.get_aggs(t,1,"day",limit=5)[-2].close
-        except: prev_close_cache[t] = None
-    return prev_close_cache[t]
-
-def get_data(t, tf):
+def get_price_data(t):
     try:
-        mult = {"D":1,"240":4,"60":1,"30":1,"15":1}.get(tf,1)
-        a = client.get_aggs(t,mult,"minute" if tf!="D" else "day",(now_pst()-timedelta(days=730 if tf=="D" else 60)).strftime('%Y-%m-%d'),now_pst().strftime('%Y-%m-%d'),limit=50000)
-        if len(a)<50: return None,None,None,None,None,None
-        closes = [x.close for x in a]
-        highs = [x.high for x in a[-12:]]
-        lows  = [x.low for x in a[-12:]]
-        opens = [x.open for x in a[-1:]]
-        vwap = sum((x.vwap or 0)*x.volume for x in a[-20:]) / sum(x.volume for x in a[-20:]) if sum(x.volume for x in a[-20:]) else None
-        ema = closes[0]
-        k = 2/51
-        for c in closes[1:]: ema = c*k + ema*(1-k)
-        return round(closes[-1],4), round(ema,4), max(highs), min(lows), vwap, opens[0] if opens else None
-    except: return None,None,None,None,None,None
+        bars = client.get_aggs(t, 1, "minute", limit=100)
+        if len(bars) < 20: return None
+        b = bars[-1]
+        vwap = sum((x.vwap or x.close)*x.volume for x in bars[-20:]) / sum(x.volume for x in bars[-20:])
+        ema = b.close
+        for x in reversed(bars[:-1]): ema = x.close * 0.075 + ema * 0.925
+        return {"price": b.close, "high": b.high, "low": b.low, "open": b.open, "volume": b.volume, "vwap": vwap, "ema": ema}
+    except: return None
 
-def get_cheap_contract(t, direction):
+def get_vix1d():
+    try: return client.get_aggs("VIX1D",1,"minute",limit=1)[0].close
+    except: return 30.0
+
+def get_cheap_contract(ticker, direction):
     try:
-        for c in client.list_options_contracts(underlying_ticker=t,contract_type="call" if direction=="LONG" else "put",
-            expiration_date_gte=now_pst().strftime('%Y-%m-%d'),expiration_date_lte=(now_pst()+timedelta(days=7)).strftime('%Y-%m-%d'),limit=100):
+        today = now().strftime('%Y-%m-%d')
+        for c in client.list_options_contracts(underlying_ticker=ticker,
+            contract_type="call" if direction=="LONG" else "put",
+            expiration_date_gte=today, expiration_date_lte=(now()+timedelta(days=2)).strftime('%Y-%m-%d'), limit=200):
             q = client.get_option_quote(c.ticker)
-            if q:
-                p = q.last_price or q.bid or q.ask or 0
-                if 0.01 <= p <= MAX_PREMIUM:
-                    return c.strike_price, round(p,2)
+            if q and (p := (q.last_price or q.bid or q.ask or 0)) and 0.01 <= p <= MAX_PREMIUM:
+                return c.ticker, c.strike_price, round(p, 3)  # returns full option ticker + strike + premium
     except: pass
-    return None,None
+    return None, None, None
 
-# MAIN LOOP — 6 STRATEGIES + EOD + HEARTBEAT
-send("REVENANT NUCLEAR — LIVE — 6 strategies + recap — Deployed")
+# ——————— ALERT WITH CONTRACT TRACKING ———————
+def track_alert(key, ticker, direction, contract_ticker, entry_prem):
+    if key not in alerts_today:
+        alerts_today[key] = {
+            "ticker": ticker,
+            "direction": direction,
+            "contract": contract_ticker,
+            "entry_prem": entry_prem
+        }
+        send(f"{ticker} → {direction} SIGNAL\nContract: {contract_ticker}\nEntry @ ${entry_prem}\n→ EXECUTE NOW")
+
+# ——————— MAIN LOOP (9 STRATEGIES) ———————
+send("REVENANT 9-STRAT NUCLEAR — OPTIONS % GAIN IN EOD — LIVE")
 while True:
     try:
-        now = now_pst()
-        hour, minute = now.hour, now.minute
-        current_time = time.time()
+        hour = now().hour
+        if time.time() - last_scan >= 300:
+            last_scan = time.time()
 
-        # HEARTBEAT EVERY 5 MIN
-        if current_time - last_scan_time >= 300:
-            print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — no 429s")
-            last_scan_time = current_time
-
-        # EOD RECAP
-        if hour == 12 and minute >= 55 and not eod_sent:
-            # [your existing recap code ]
-            eod_sent = True
-            alerts_today = []
-
-        if now.weekday() >= 5 or not (6.5 <= hour < 13):
-            time.sleep(300); continue
+        vix1d = get_vix1d()
 
         for t in TICKERS:
-            prev = get_prev_close(t)
-            if not prev: continue
-            price, _, _, _, _, _ = get_data(t,"D")
-            if not price: continue
-            gap = abs((price-prev)/prev*100)
-            if gap < MIN_GAP: continue
-            direction = "LONG" if price>prev else "SHORT"
+            data = get_price_data(t)
+            if not data: continue
+            p, hi, lo, vwap, ema, vol = data["price"], data["high"], data["low"], data["vwap"], data["ema"], data["volume"]
 
-            strike, prem = get_cheap_contract(t,direction)
-            if not prem: continue
+            call_contract, call_stk, call_prem = get_cheap_contract(t, "LONG")
+            put_contract, put_stk, put_prem = get_cheap_contract(t, "SHORT")
 
-            for tf in ["15","30","60","240","D"]:
-                p, ema, hi, lo, vwap, bar_open = get_data(t,tf)
-                if not ema: continue
+            # === ALL 9 STRATEGIES (with contract tracking) ===
+            if t in ["SPY","QQQ"] and 9 <= hour <= 10 and vix1d > 45:
+                peak = max(b.high for b in client.get_aggs("VIX1D",1,"minute",limit=50))
+                if vix1d < peak*0.85 and p > vwap and call_contract:
+                    track_alert(f"vix1d_{t}", t, "VIX1D FADE LONG", call_contract, call_prem)
 
-                sent = False
+            if 11 <= hour <= 14 and p > vwap and call_contract:
+                track_alert(f"ivcrush_{t}", t, "IV CRUSH LONG", call_contract, call_prem)
 
-                # 1. EMA RETEST
-                if (direction=="LONG" and lo<=ema<=p) or (direction=="SHORT" and hi>=ema>=p):
-                    msg = f"[{t}] EMA RETEST {direction}\n{gap:.1f}% gap → touched {tf} EMA\n→ BUY {strike} @ ${prem} NOW\nTarget: 2–2.5× gap"
-                    if f"retest_{t}_{tf}" not in alerts_today:
-                        alerts_today.append(f"{t} {direction} EMA {tf}")
-                        send(msg); sent = True
+            if t in ["NVDA","TSLA","SMCI","MSTR","COIN","AMD"] and vix1d > 35 and vol > 5_000_000 and put_contract:
+                if p < data["open"] * 0.992:
+                    track_alert(f"nuke_{t}", t, "GAMMA NUKE SHORT", put_contract, put_prem)
 
-                # 2. VWAP RECLAIM
-                if vwap and ((direction=="LONG" and lo<=vwap<=p) or (direction=="SHORT" and hi>=vwap>=p)) and not sent:
-                    msg = f"[{t}] VWAP RECLAIM {direction}\n{gap:.1f}% gap → reclaimed VWAP\n→ BUY {strike} @ ${prem} NOW"
-                    if f"vwap_{t}" not in alerts_today:
-                        alerts_today.append(f"{t} {direction} VWAP")
-                        send(msg); sent = True
+            if lo <= ema <= p and call_contract:
+                track_alert(f"ema_long_{t}", t, "EMA RETEST LONG", call_contract, call_prem)
+            if hi >= ema >= p and put_contract:
+                track_alert(f"ema_short_{t}", t, "EMA RETEST SHORT", put_contract, put_prem)
+            if vwap and lo <= vwap <= p and call_contract:
+                track_alert(f"vwap_long_{t}", t, "VWAP RECLAIM LONG", call_contract, call_prem)
+            if vwap and hi >= vwap >= p and put_contract:
+                track_alert(f"vwap_short_{t}", t, "VWAP REJECT SHORT", put_contract, put_prem)
+            if vol > 6_000_000 and p < vwap and put_contract:
+                track_alert(f"po3_{t}", t, "PO3 NUCLEAR SHORT", put_contract, put_prem)
+            if lo < client.get_aggs(t,1,"minute",limit=20)[-10].low and p > vwap and call_contract:
+                track_alert(f"snap_{t}", t, "SNAP-BACK LONG", call_contract, call_prem)
 
-                # 3. R2G / G2R FLIP
-                if tf=="15" and bar_open and ((direction=="LONG" and bar_open<prev and p>bar_open) or (direction=="SHORT" and bar_open>prev and p<bar_open)) and not sent:
-                    flip = "R2G" if direction=="LONG" else "G2R"
-                    msg = f"[{t}] {flip} FLIP {direction}\n{gap:.1f}% gap → flipped color\n→ BUY {strike} @ ${prem} on momentum"
-                    if f"flip_{t}" not in alerts_today:
-                        alerts_today.append(f"{t} {flip}")
-                        send(msg)
+        # ——————— EOD RECAP WITH REAL OPTIONS % GAIN ———————
+        if 12 <= hour <= 13 and not eod_sent_today:
+            if alerts_today:
+                recap = "EOD RECAP — REAL 0DTE OPTIONS P&L\n\n"
+                total_gain = 0
+                wins = 0
+                for key, info in alerts_today.items():
+                    try:
+                        quote = client.get_option_quote(info["contract"])
+                        current_prem = quote.last_price or quote.bid or quote.ask or info["entry_prem"]
+                        pct_gain = ((current_prem - info["entry_prem"]) / info["entry_prem"]) * 100
+                        total_gain += pct_gain
+                        status = "WIN" if pct_gain > 0 else "LOSS"
+                        wins += 1 if pct_gain > 0 else 0
+                        recap += f"{status} {info['ticker']} {info['direction']}\n"
+                        recap += f"   {info['contract']} | ${info['entry_prem']} → ${current_prem:.3f} | {pct_gain:+.1f}%\n"
+                    except:
+                        recap += f"{info['ticker']} → no final quote\n"
+                avg_gain = total_gain / len(alerts_today) if alerts_today else 0
+                recap += f"\nWINS: {wins}/{len(alerts_today)} | AVG OPTIONS GAIN: {avg_gain:+.1f}%"
+                send(recap)
+            else:
+                send("EOD RECAP — CLEAN SHEET\nZero alerts — perfect discipline")
+            eod_sent_today = True
+
+        if hour == 1:
+            alerts_today.clear()
+            eod_sent_today = False
 
         time.sleep(300)
     except Exception as e:
-        send(f"ERROR — Still alive: {e}")
+        send(f"ERROR — Still alive: {str(e)[:100]}")
         time.sleep(300)
