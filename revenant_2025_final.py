@@ -8,12 +8,19 @@ import pytz
 from polygon import RESTClient
 
 def check_live():
-    # TEMPORARY: FORCE TEST ALERTS ANYTIME (remove when done testing)
+    mode = get_test_mode()
+
+    # Send forced test alerts every scan (even after hours)
     send_forced_test_alerts()
 
-    if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
-        time.sleep(300); return
-    # ... rest of the function
+    # ONLY sleep and skip real scan after hours if NOT in forced mode
+    if mode != 'forced':
+        if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
+            time.sleep(300)
+            return
+
+    print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — FULL POWER")
+    # ... rest of your real scan code (ATR, ticker loop, etc.)
 
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
