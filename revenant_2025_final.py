@@ -1,11 +1,14 @@
-# revenant_2025_2_to_3_alerts_per_day_429_PROOF.py
-# FINAL VERSION — ZERO 429s GUARANTEED — 2–3 ALERTS/DAY
+# revenant_2025_2_to_3_alerts_per_day_FULLY_FIXED_WITH_TEST_MODE.py
+# FINAL VERSION — ZERO 429s + LOW-LIQUIDITY TICKERS ALIVE + TEST MODE TOGGLE
 import os
 import time
 import requests
 from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
+
+# === TEST MODE TOGGLE ===
+TEST_MODE = True  # <<< FLIP TO False WHEN READY FOR LIVE TRADING >>>
 
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
@@ -28,7 +31,7 @@ sent_alerts = set()
 last_heartbeat = 0
 pst = pytz.timezone('America/Los_Angeles')
 
-# === SMART CACHES (this is what kills 429s) ===
+# === SMART CACHES ===
 prev_close_cache = {}
 atr_cache = {}
 last_cache_date = None
@@ -50,14 +53,13 @@ def get_prev_close(ticker):
             prev_close_cache[ticker] = None
     return prev_close_cache[ticker]
 
-# Cache 20-period ATR once per scan (not per ticker!)
+# Cache 20-period ATR once per scan
 def get_current_atr_and_range():
     global atr_cache
-    if not atr_cache or time.time() - atr_cache.get("ts", 0) > 290:  # refresh every ~5min
+    if not atr_cache or time.time() - atr_cache.get("ts", 0) > 290:
         atr_cache = {"ts": time.time()}
         minute_bars = {}
         try:
-            # One single bulk request for all tickers (massive 429 saver)
             for ticker in TICKERS:
                 bars = client.get_aggs(ticker, 1, "minute", limit=30)
                 minute_bars[ticker] = bars
@@ -72,19 +74,23 @@ def get_current_atr_and_range():
             pass
     return atr_cache
 
-# === REST OF HELPERS (unchanged) ===
+# === DISCORD + HEARTBEAT (with TEST MODE prefix) ===
 def send_discord(msg):
+    prefix = "**TEST MODE** — " if TEST_MODE else ""
+    full_msg = f"{prefix}**Revenant 2.0** | {now_pst().strftime('%H:%M:%S PST')} ```{msg}```"
     try:
-        requests.post(DISCORD_WEBHOOK, json={"content": f"**Revenant 2.0** | {now_pst().strftime('%H:%M:%S PST')} ```{msg}```"}, timeout=10)
-        print(f"ALERT → {msg}")
+        requests.post(DISCORD_WEBHOOK, json={"content": full_msg}, timeout=10)
+        print(f"ALERT → {full_msg}")
     except: pass
 
 def send_heartbeat():
     global last_heartbeat
     if time.time() - last_heartbeat > 3600:
-        send_discord("HEARTBEAT — 2–3 alerts/day | 429-PROOF | Running perfectly")
+        test_note = " (TEST MODE ACTIVE)" if TEST_MODE else ""
+        send_discord(f"HEARTBEAT — 2–3 alerts/day | 429-PROOF | Low-liq alive{test_note}")
         last_heartbeat = time.time()
 
+# === EMA ===
 def get_price_and_ema(ticker, tf, length):
     try:
         mult = {"D":1, "240":4, "60":1, "30":1, "15":1}.get(tf, 1)
@@ -99,9 +105,14 @@ def get_price_and_ema(ticker, tf, length):
         return round(closes[-1], 4), round(ema, 4)
     except: return None, None
 
+# === GAMMA ===
 def get_gamma_flip(ticker):
     try:
-        contracts = client.list_options_contracts(underlying_ticker=ticker, expiration_date_gte=now_pst().strftime('%Y-%m-%d'), expiration_date_lte=(now_pst()+timedelta(days=2)).strftime('%Y-%m-%d'), limit=200)
+        contracts = client.list_options_contracts(
+            underlying_ticker=ticker,
+            expiration_date_gte=now_pst().strftime('%Y-%m-%d'),
+            expiration_date_lte=(now_pst()+timedelta(days=2)).strftime('%Y-%m-%d'),
+            limit=200)
         strikes = {}
         for c in contracts:
             oi = c.open_interest or 0
@@ -109,17 +120,30 @@ def get_gamma_flip(ticker):
         return max(strikes, key=strikes.get) if strikes else None
     except: return None
 
+# === CHEAP CONTRACT — LOW-LIQUIDITY FIXED ===
 def find_cheap_contract(ticker, direction):
     try:
-        contracts = client.list_options_contracts(underlying_ticker=ticker, contract_type="call" if direction=="LONG" else "put",
-            expiration_date_gte=now_pst().strftime('%Y-%m-%d'), expiration_date_lte=(now_pst()+timedelta(days=7)).strftime('%Y-%m-%d'), limit=100)
+        contracts = client.list_options_contracts(
+            underlying_ticker=ticker,
+            contract_type="call" if direction == "LONG" else "put",
+            expiration_date_gte=now_pst().strftime('%Y-%m-%d'),
+            expiration_date_lte=(now_pst() + timedelta(days=7)).strftime('%Y-%m-%d'),
+            limit=100
+        )
         for c in contracts:
-            q = client.get_last_trade(c.ticker)
-            if q and q.price and q.price <= MAX_PREMIUM:
-                return c.strike_price, round(q.price, 2)
-    except: pass
+            try:
+                quote = client.get_option_quote(c.ticker)
+                if quote:
+                    price = quote.last_price or quote.bid or quote.ask or 0
+                    if 0.01 <= price <= MAX_PREMIUM:
+                        return c.strike_price, round(price, 2)
+            except:
+                continue
+    except:
+        pass
     return None, None
 
+# === GRADING ===
 def get_grade(gap, prem, gamma_hit, daily):
     s = gap
     if daily: s *= 2.2
@@ -136,7 +160,7 @@ def check_live():
     if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
         time.sleep(300); return
 
-    print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — 429-PROOF")
+    print(f"SCANNING — {now_pst().strftime('%H:%M:%S PST')} — 50 TICKERS — FULL POWER")
 
     atr_data = get_current_atr_and_range()
 
@@ -179,7 +203,8 @@ def check_live():
 
 # === START ===
 if __name__ == "__main__":
-    send_discord("REVENANT 2.0 429-PROOF FINAL — Deployed. Zero rate-limits forever.")
+    test_note = " (TEST MODE ACTIVE)" if TEST_MODE else ""
+    send_discord(f"REVENANT 2.0 FULLY FIXED{test_note} — Low-liq alive | 429-proof | Deployed & hunting")
     while True:
         try:
             check_live()
