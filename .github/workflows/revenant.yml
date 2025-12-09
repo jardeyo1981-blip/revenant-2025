@@ -3,12 +3,12 @@ name: Revenant 2025 — LIVE FOREVER
 on:
   workflow_dispatch:      # Manual trigger
   schedule:
-    - cron: '20 13 * * 1-5'  # 6:20 AM PST every trading day
+    - cron: '30 13 * * 1-5'  # Every trading day at 6:30 AM PST
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 1440   # 24 hours max
+    timeout-minutes: 1440   # 24 hours
     steps:
       - uses: actions/checkout@v4
 
