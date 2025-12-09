@@ -7,6 +7,14 @@ from datetime import datetime, timedelta
 import pytz
 from polygon import RESTClient
 
+def check_live():
+    # TEMPORARY: FORCE TEST ALERTS ANYTIME (remove when done testing)
+    send_forced_test_alerts()
+
+    if now_pst().weekday() >= 5 or not (6.5 <= now_pst().hour < 13):
+        time.sleep(300); return
+    # ... rest of the function
+
 # === SECRETS ===
 MASSIVE_KEY = os.getenv("MASSIVE_API_KEY")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
