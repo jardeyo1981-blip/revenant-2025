@@ -9,7 +9,7 @@ from polygon import RESTClient
 
 # === DUAL TEST MODE TOGGLE ===
 # MODE 1: Normal test mode (real alerts with "TEST MODE" prefix)
-NORMAL_TEST_MODE = false   # Set False for clean live alerts
+NORMAL_TEST_MODE = False   # Set False for clean live alerts
 
 # MODE 2: Forced test alerts mode (generates fake alerts every scan for format testing)
 FORCED_TEST_ALERTS = True  # Set True to spam fake alerts every 5min (great for testing message variety)
