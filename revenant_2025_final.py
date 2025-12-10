@@ -1,48 +1,20 @@
 # ================================================================
-# REVENANT UNLIMITED ELITE — FINAL FOREVER (DEC 10 2025)
-# FOMC Day Special — Auto-Hottest-Peppers — Real Targets — Spread Filter
-# 8–12 alerts expected today → +$38k–$92k → 98.1% win rate
+# REVENANT — FULL RIPSTER TENETS EDITION (DEC 11 2025)
 # ================================================================
 
 import os, time, requests, pytz
 from datetime import datetime, timedelta
+from statistics import median
 
-# AUTO-FIX FOR ANY POLYGON KEY + BULLETPROOF FALLBACK
 try:
     from polygon import RESTClient
-    client = RESTClient(api_key=os.getenv("MASSIVE_API_KEY"), timeout=30)
-    print("Polygon v3 client loaded")
+    client = RESTClient(api_key=os.getenv("MASSIVE_API_KEY"))
 except:
-    try:
-        from polygon.rest import RESTClient as OldClient
-        client = OldClient(api_key=os.getenv("MASSIVE_API_KEY"))
-        print("Polygon v2 client loaded")
-    except:
-        print("Polygon library failed — using direct requests fallback")
-        client = None
+    from polygon.rest import RESTClient as OldClient
+    client = OldClient(api_key=os.getenv("MASSIVE_API_KEY"))
 
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
-if not DISCORD_WEBHOOK:
-    print("Set DISCORD_WEBHOOK_URL!")
-    exit()
-
-# ——————— FOMC DAY OVERRIDE — TODAY ONLY (DEC 10 2025) ———————
-FOMC_DAY_OVERRIDE = True   # ← Turn OFF tomorrow
-
-if FOMC_DAY_OVERRIDE:
-    VIX1D_MIN = 25
-    VOLUME_MULT = 3.8
-    VWAP_DISTANCE = 0.007
-    RSI_LONG_MAX = 32
-    RSI_SHORT_MIN = 68
-    MAX_PREMIUM = 0.40
-else:
-    VIX1D_MIN = 32
-    VOLUME_MULT = 3.5
-    VWAP_DISTANCE = 0.006
-    RSI_LONG_MAX = 28
-    RSI_SHORT_MIN = 72
-    MAX_PREMIUM = 0.50
+if not DISCORD_WEBHOOK: exit("Set DISCORD_WEBHOOK_URL!")
 
 TICKERS = ["SPY","QQQ","IWM","NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN",
            "AVGO","NFLX","AMZN","GOOGL","MSFT","ARM","SOXL","TQQQ","SQQQ","UVXY",
@@ -55,120 +27,125 @@ pst = pytz.timezone('America/Los_Angeles')
 def now(): return datetime.now(pst)
 
 def send(msg):
-    requests.post(DISCORD_WEBHOOK, json={"content": f"**REVENANT FOMC FINAL** | {now().strftime('%H:%M PST')}\n```{msg}```"})
+    requests.post(DISCORD_WEBHOOK, json={"content": f"**REVENANT RIPSTER FINAL** | {now().strftime('%H:%M PST')}\n```{msg}```"})
 
-def heartbeat():
-    global last_heartbeat
-    if time.time() - last_heartbeat >= 300:
-        print(f"SCANNING — {now().strftime('%H:%M:%S PST')} — FOMC DAY MODE — LIVE")
-        last_heartbeat = time.time()
-
-# BULLETPROOF AGGS — NEVER FAILS AGAIN
-def safe_aggs(ticker, multiplier=1, timespan="minute", limit=100):
-    if client:
-        try:
-            return client.get_aggs(ticker, multiplier, timespan, limit=limit)
-        except:
-            pass
-    # Direct API call — works even if Polygon library dies
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}"
-    params = {"adjusted": "true", "limit": limit, "apiKey": os.getenv("MASSIVE_API_KEY")}
+def get_dynamic_vix_threshold():
     try:
-        r = requests.get(url, params=params, timeout=20)
-        data = r.json()
-        if "results" in data:
-            return [type('obj', (), x) for x in data["results"]]
-    except:
-        pass
-    return []
+        raw = client.get_aggs("^VIX", 1, "day", limit=40)
+        closes = [b.close for b in raw[-22:]]
+        return max(sorted(closes)[int(len(closes)*0.75)], 14.0)
+    except: return 16.0
 
-# TARGET PRICE
+def safe_aggs(ticker, multiplier=1, timespan="minute", limit=100):
+    try: return client.get_aggs(ticker, multiplier, timespan, limit=limit)
+    except:
+        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}"
+        params = {"adjusted":"true","limit":limit,"apiKey":os.getenv("MASSIVE_API_KEY")}
+        try:
+            r = requests.get(url, params=params, timeout=20)
+            data = r.json()
+            if "results" in data: return [type('obj', (), x) for x in data["results"]]
+        except: pass
+        return []
+
+def mtf_vwap_slope(ticker):
+    try:
+        bars15 = safe_aggs(ticker, 15, "minute", limit=20)
+        if len(bars15) < 10: return 0
+        vwap_old = sum((b.vwap or b.close)*b.volume for b in bars15[-10:-5]) / sum(b.volume for b in bars15[-10:-5])
+        vwap_new = sum((b.vwap or b.close)*b.volume for b in bars15[-5:]) / sum(b.volume for b in bars15[-5:])
+        return 1 if vwap_new > vwap_old else -1 if vwap_new < vwap_old else 0
+    except: return 0
+
 def get_target_price(ticker, direction, current_price):
     try:
         daily = safe_aggs(ticker, 1, "day", limit=20)
         atr = sum(b.high - b.low for b in daily[-14:]) / 14
-    except:
-        atr = current_price * 0.015
-    vix = safe_aggs("VIX1D", limit=1)
-    vix_val = vix[0].close if vix else 30
-    boost = max(0, (vix_val - 38) * 0.15)
-    mult = (1.8 + boost) if "0DTE" in direction else (1.0 + boost * 0.5)
-    move = atr * mult
-    return round(current_price + (move if "LONG" in direction else -move), 2)
+    except: atr = current_price * 0.015
+    return round(current_price + (atr * 1.45 if "LONG" in direction else -atr * 1.45), 2)
 
-# CONTRACT + SPREAD FILTER
 def get_contract(ticker, direction):
     today = now().strftime('%Y-%m-%d')
-    exp = today if "0DTE" in direction else (now() + timedelta(days=(4-now().weekday())%7 + 3)).strftime('%Y-%m-%d')
     ctype = "call" if "LONG" in direction else "put"
-    for c in client.list_options_contracts(underlying_ticker=ticker, contract_type=ctype,
-                                           expiration_date=exp, limit=200):
+    contracts = client.list_options_contracts(underlying_ticker=ticker, contract_type=ctype,
+                                              expiration_date=today, limit=200)
+    spot = safe_aggs(ticker, limit=1)[-1].close
+    candidates = []
+    for c in contracts:
         try:
             q = client.get_option_quote(c.ticker)
-            if not q or q.bid is None or q.ask is None or q.bid == 0 or q.ask == 0:
-                continue
-            bid, ask = q.bid, q.ask
-            mid = (bid + ask) / 2
-            if (ask - bid) > 0.15 or ((ask - bid) / mid) > 0.25:
-                continue
-            p = ask
-            if 0.30 <= p <= MAX_PREMIUM:
-                return c.ticker, round(p, 3), "0DTE" if exp==today else "WEEKLY"
-        except:
-            continue
+            if not q or q.ask is None or q.ask > 18 or q.bid < 0.10: continue
+            strike = float(c.ticker.split(ctype.upper())[-1])
+            dist = abs(strike - spot) / spot
+            if dist <= 0.048:
+                spread_pct = (q.ask - q.bid) / q.ask
+                if spread_pct <= 0.35 and q.open_interest > 300:
+                    candidates.append((q.ask, q.open_interest, dist, c.ticker))
+        except: continue
+    if candidates:
+        candidates.sort(key=lambda x: (-x[1], x[0], x[2]))
+        best = candidates[0]
+        return best[3], round(best[0], 2), "0DTE"
     return None, None, None
 
-# LAUNCH
-send("REVENANT FOMC DAY FINAL — LIVE — 8–12 ALERTS EXPECTED — GO TIME")
-heartbeat()
+send("REVENANT RIPSTER FINAL — FULL TENETS — LIVE")
+print("VIX threshold today:", get_dynamic_vix_threshold())
 
 while True:
     try:
-        heartbeat()
+        if time.time() - last_heartbeat >= 300:
+            print(f"SCANNING {now().strftime('%H:%M PST')} | VIX thresh {get_dynamic_vix_threshold():.1f}")
+            last_heartbeat = time.time()
 
-        vix_data = safe_aggs("VIX1D", limit=1)
-        vix1d = vix_data[0].close if vix_data else 30.0
-        if vix1d < VIX1D_MIN:
+        if now().hour == 6 and now().minute < 45:  # skip first 15 min
+            time.sleep(60); continue
+
+        if safe_aggs("VIX1D", limit=1)[0].close < get_dynamic_vix_threshold():
             time.sleep(300); continue
 
         for t in TICKERS:
             bars = safe_aggs(t, limit=100)
-            if len(bars) < 20: continue
-            b = bars[-1]
-            current_price = b.close
+            if len(bars) < 30: continue
+            b = bars[-1]; current_price = b.close
             vwap = sum((x.vwap or x.close)*x.volume for x in bars[-20:]) / sum(x.volume for x in bars[-20:])
             vol_mult = b.volume / (sum(x.volume for x in bars[-20:]) / 20)
-            rsi = 100 - (100 / (1 + (sum(max(x.close-x.open,0) for x in bars[-14:]) /
-                                    (sum(abs(x.close-x.open) for x in bars[-14:]) or 1))))
 
-            if vol_mult < VOLUME_MULT or abs(current_price - vwap)/vwap < VWAP_DISTANCE:
-                continue
+            gains = sum(max(x.close-x.open,0) for x in bars[-14:])
+            losses = sum(abs(x.close-x.open) for x in bars[-14:]) or 1
+            rsi = 100 - (100 / (1 + gains/losses))
+            rsi3 = [100 - (100 / (1 + sum(max(x.close-x.open,0) for x in bars[-14-i:-i]) /
+                                  (sum(abs(x.close-x.open) for x in bars[-14-i:-i]) or 1))) for i in range(1,4)]
+            rsi_curl_up = rsi3[0] > rsi3[1] > rsi3[2]
+            rsi_curl_down = rsi3[0] < rsi3[1] < rsi3[2]
+
+            ema5 = sum(b.close for b in bars[-5:]) / 5
+            mtf = mtf_vwap_slope(t)
+
+            if vol_mult < 2.65 or abs(current_price - vwap)/vwap < 0.0042: continue
 
             # LONG
-            c, prem, mode = get_contract(t, "LONG")
-            if c and b.low <= vwap <= current_price and rsi < RSI_LONG_MAX:
-                if f"long_{t}" not in alerts_today:
+            if (current_price > vwap and current_price > ema5 and rsi < 34 and rsi_curl_up and mtf >= 0 and b.low <= vwap <= current_price):
+                c, prem, _ = get_contract(t, "LONG")
+                if c and f"long_{t}" not in alerts_today:
                     alerts_today.add(f"long_{t}")
                     target = get_target_price(t, "LONG", current_price)
-                    send(f"{t} → {mode} LONG\nCurrent: ${current_price:.2f}\nTARGET: ${target}\n{c} @ ${prem}")
+                    send(f"{t} 0DTE LONG → ${prem}\nTarget ${target}\n{c}")
 
             # SHORT
-            c, prem, mode = get_contract(t, "SHORT")
-            if c and b.high >= vwap >= current_price and rsi > RSI_SHORT_MIN:
-                if f"short_{t}" not in alerts_today:
+            if (current_price < vwap and current_price < ema5 and rsi > 66 and rsi_curl_down and mtf <= 0 and b.high >= vwap >= current_price):
+                c, prem, _ = get_contract(t, "SHORT")
+                if c and f"short_{t}" not in alerts_today:
                     alerts_today.add(f"short_{t}")
                     target = get_target_price(t, "SHORT", current_price)
-                    send(f"{t} → {mode} SHORT\nCurrent: ${current_price:.2f}\nTARGET: ${target}\n{c} @ ${prem}")
+                    send(f"{t} 0DTE SHORT → ${prem}\nTarget ${target}\n{c}")
 
-        if now().hour == 13 and not eod_sent:
-            if not alerts_today:
-                send("EOD RECAP — CLEAN SHEET\nZero alerts — perfect discipline")
+        if now().hour >= 13 and not eod_sent:
+            send(f"EOD — {len(alerts_today)} RIPSTER alerts today")
             eod_sent = True
         if now().hour == 1:
-            alerts_today.clear()
-            eod_sent = False
+            alerts_today.clear(); eod_sent = False
 
         time.sleep(300)
     except Exception as e:
-        send(f"ERROR — Still alive: {str(e)[:100]}")
+        send(f"ERROR: {str(e)[:100]}")
         time.sleep(300)
