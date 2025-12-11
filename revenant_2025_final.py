@@ -7,6 +7,7 @@ from discord.ext import tasks, commands
 import talib
 import numpy as np
 import pandas as pd
+import alpaca_trade_api as tradeapi
 
 # Discord bot and webhook setup
 intents = discord.Intents.default()
@@ -16,6 +17,12 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
 DISCORD_CHANNEL_ID = int(os.environ.get('DISCORD_CHANNEL_ID'))
 DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
+
+# Alpaca API setup
+API_KEY = os.environ.get('ALPACA_API_KEY')
+API_SECRET = os.environ.get('ALPACA_API_SECRET')
+BASE_URL = os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+client = tradeapi.REST(API_KEY, API_SECRET, base_url=BASE_URL, api_version='v2')
 
 # Tickers and pools
 INDEX = ["SPY", "QQQ", "IWM"]
