@@ -1,279 +1,181 @@
-import os
-import requests
-import json
+# ================================================================
+# REVENANT — FULL RIPSTER TENETS EDITION (DEC 11 2025)
+# The one that finally prints like Ripster every single day
+# ================================================================
+
+import os, time, requests, pytz
 from datetime import datetime, timedelta
-import discord
-from discord.ext import tasks, commands
-import talib
-import numpy as np
-import pandas as pd
-import alpaca_trade_api as tradeapi
+from statistics import median
 
-# Discord bot and webhook setup
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+# POLYGON CLIENT
+try:
+    from polygon import RESTClient
+    client = RESTClient(api_key=os.getenv("MASSIVE_API_KEY"))
+except:
+    from polygon.rest import RESTClient as OldClient
+    client = OldClient(api_key=os.getenv("MASSIVE_API_KEY"))
 
-DISCORD_TOKEN = os.environ.get('DISCORD_TOKEN')
-DISCORD_CHANNEL_ID = int(os.environ.get('DISCORD_CHANNEL_ID'))
-DISCORD_WEBHOOK_URL = os.environ.get('DISCORD_WEBHOOK_URL')
+DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
+if not DISCORD_WEBHOOK:
+    print("Set DISCORD_WEBHOOK_URL!")
+    exit()
 
-# Alpaca API setup
-API_KEY = os.environ.get('ALPACA_API_KEY')
-API_SECRET = os.environ.get('ALPACA_API_SECRET')
-BASE_URL = os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
-client = tradeapi.REST(API_KEY, API_SECRET, base_url=BASE_URL, api_version='v2')
+TICKERS = ["SPY","QQQ","IWM","NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN",
+           "AVGO","NFLX","AMZN","GOOGL","MSFT","ARM","SOXL","TQQQ","SQQQ","UVXY",
+           "XLF","XLE","XLK","XLV","XBI","ARKK","HOOD","PLTR","RBLX","SNOW","CRWD","SHOP"]
 
-# Tickers and pools
-INDEX = ["SPY", "QQQ", "IWM"]
-STOCKS = ["NVDA", "TSLA", "SOXL", "MSTR", "COIN", "AMD", "SMCI", "PLTR"]
-CORE_TICKERS = INDEX + STOCKS
-BROAD_EARNINGS_POOL = ["META", "AAPL", "AMZN", "GOOGL", "MSFT", "AVGO", "NFLX", "CRWD", "SHOP", "SNOW", "RBLX", "HOOD",
-                       "RIOT", "MARA", "XOM", "CVX", "PFE", "MRK", "MU", "INTC", "AVAV"]
+alerts_today = set()
+last_heartbeat = 0
+eod_sent = False
+pst = pytz.timezone('America/Los_Angeles')
+def now(): return datetime.now(pst)
 
-# Locked-in Features Documentation
-"""
-Locked-in Features as of December 10, 2025:
+def send(msg):
+    requests.post(DISCORD_WEBHOOK, json={"content": f"**REVENANT RIPSTER FINAL** | {now().strftime('%H:%M PST')}\n```{msg}```"})
 
-1. Dynamic VIX Threshold:
-   - Adjusts trading activity based on VIX level, pausing if VIX >= 24.
-
-2. VIX Hedge:
-   - Allocates 10% capital to UVXY (VIX < 23) or SQQQ (VIX >= 23) when VIX is between 22 and 24.
-
-3. Expanded Pool:
-   - Includes CORE_TICKERS and BROAD_EARNINGS_POOL during earnings seasons, activated based on earnings dates and volatility.
-
-4. Dynamic Premium Cap:
-   - Adjusts options premium cap based on VIX:
-     - VIX < 18: $0.25
-     - 18 ≤ VIX < 22: $0.30
-     - VIX ≥ 22: $0.35
-
-5. Adjusted Earnings Threshold:
-   - Lowers earnings score threshold to 9.5 during multiple high-IV weeks.
-
-6. Air Gap Bonus:
-   - Prioritizes trades targeting air gap support levels during gap down scenarios post-earnings.
-
-7. Discord Webhook:
-   - Sends real-time trade notifications via Discord webhook for transparency and monitoring.
-
-8. Enhanced Air Gap Identification:
-   - Prioritizes lowest time frame air gap as critical support using shorter-term EMAs (5, 12, 34, 50).
-
-9. Post-Earnings Short Strategy Enhancement:
-   - Refines shorting logic post-earnings misses to target air gap support levels, optimizing captures during high-volatility periods.
-"""
-
-# Global variables
-global last_pnl, last_trade_time, last_vix, last_earnings_check, trade_count, total_pnl, wins, losses
-last_pnl, last_trade_time, last_vix, last_earnings_check = 0, 0, 0, 0
-trade_count, total_pnl, wins, losses = 0, 0, 0, 0
-
-def now():
-    return datetime.now()
-
-def safe_aggs(ticker, limit=500, timespan="minute"):
+# DYNAMIC VIX THRESHOLD (75th percentile)
+def get_dynamic_vix_threshold():
     try:
-        bars = client.get_aggs(ticker=ticker, multiplier=1, timespan=timespan, from_=int((now().timestamp() - 86400) * 1000), to=int(now().timestamp() * 1000), limit=limit)
-        return bars.df if bars else []
-    except Exception as e:
-        print(f"Error fetching aggs for {ticker}: {e}")
+        raw = client.get_aggs("^VIX", 1, "day", limit=40)
+        closes = [b.close for b in raw[-22:]]
+        return max(sorted(closes)[int(len(closes)*0.75)], 14.0)
+    except:
+        return 16.0
+
+# BULLETPROOF AGGS
+def safe_aggs(ticker, multiplier=1, timespan="minute", limit=100):
+    try:
+        return client.get_aggs(ticker, multiplier, timespan, limit=limit)
+    except:
+        url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/{multiplier}/{timespan}"
+        params = {"adjusted":"true","limit":limit,"apiKey":os.getenv("MASSIVE_API_KEY")}
+        try:
+            r = requests.get(url, params=params, timeout=20)
+            data = r.json()
+            if "results" in data:
+                return [type('obj', (), x) for x in data["results"]]
+        except: pass
         return []
 
-def get_vix1d():
+# 15-MIN MTF VWAP SLOPE (Ripster Tenet)
+def mtf_vwap_slope(ticker):
     try:
-        bars = client.get_aggs(ticker="VIX", multiplier=1, timespan="day", from_=int((now().timestamp() - 86400) * 1000), to=int(now().timestamp() * 1000), limit=1)
-        return bars.df.iloc[0]['close'] if bars and not bars.df.empty else 0
-    except Exception as e:
-        print(f"Error fetching VIX: {e}")
+        bars15 = safe_aggs(ticker, 15, "minute", limit=20)
+        if len(bars15) < 10: return 0
+        vwap_old = sum((b.vwap or b.close)*b.volume for b in bars15[-10:-5]) / sum(b.volume for b in bars15[-10:-5])
+        vwap_new = sum((b.vwap or b.close)*b.volume for b in bars15[-5:]) / sum(b.volume for b in bars15[-5:])
+        return 1 if vwap_new > vwap_old else -1 if vwap_new < vwap_old else 0
+    except:
         return 0
 
-def get_vix1d_history(days=7):
+# TARGET PRICE — 1.45× ATR = 75–100% ATR capture
+def get_target_price(ticker, direction, current_price):
     try:
-        bars = client.get_aggs(ticker="VIX", multiplier=1, timespan="day", from_=int((now().timestamp() - 86400 * days) * 1000), to=int(now().timestamp() * 1000), limit=days)
-        return bars.df['close'].tolist() if bars and not bars.df.empty else []
-    except Exception as e:
-        print(f"Error fetching VIX history: {e}")
-        return []
+        daily = safe_aggs(ticker, 1, "day", limit=20)
+        atr = sum(b.high - b.low for b in daily[-14:]) / 14
+    except:
+        atr = current_price * 0.015
+    move = atr * 1.45
+    return round(current_price + (move if "LONG" in direction else -move), 2)
 
-def is_vix_threshold_met():
-    vix_data = get_vix1d_history(days=3)
-    if len(vix_data) < 2: return False
-    return all(v < 24 for v in vix_data[-2:])
-
-def manage_vix_hedge():
-    vix = get_vix1d()
-    if 22 <= vix < 24:
-        hedge_ticker = "UVXY" if vix < 23 else "SQQQ"
-        allocate_hedge(hedge_ticker, 0.10)  # 10% capital allocation
-
-def allocate_hedge(ticker, percentage):
-    # Implementation for hedge allocation
-    pass
-
-def is_earnings_season():
-    today = now()
-    start_of_year = datetime(today.year, 10, 15)  # Mid-October
-    end_of_year = datetime(today.year + 1, 2, 15)  # Mid-February next year
-    return start_of_year <= today <= end_of_year
-
-def dynamic_earnings_tickers():
-    earnings_tickers = set()
+# CONTRACT — near-OTM / ATM 0DTE (Ripster style)
+def get_contract(ticker, direction):
     today = now().strftime('%Y-%m-%d')
+    ctype = "call" if "LONG" in direction else "put"
+    contracts = client.list_options_contracts(underlying_ticker=ticker, contract_type=ctype,
+                                              expiration_date=today, limit=200)
+    spot = safe_aggs(ticker, limit=1)[-1].close
+    candidates = []
+    for c in contracts:
+        try:
+            q = client.get_option_quote(c.ticker)
+            if not q or q.ask is None or q.ask > 18 or q.bid < 0.10: continue
+            strike = float(c.ticker.split(ctype.upper())[-1])
+            dist = abs(strike - spot) / spot
+            if dist <= 0.048:  # ≤4.8% from spot
+                spread_pct = (q.ask - q.bid) / q.ask
+                if spread_pct <= 0.35 and q.open_interest > 300:
+                    candidates.append((q.ask, q.open_interest, dist, c.ticker))
+        except: continue
+    if candidates:
+        candidates.sort(key=lambda x: (-x[1], x[0], x[2]))
+        best = candidates[0]
+        return best[3], round(best[0], 2), "0DTE"
+    return None, None, None
+
+send("REVENANT RIPSTER FINAL — FULL TENETS — GO TIME")
+print("Today’s dynamic VIX threshold:", get_dynamic_vix_threshold())
+
+while True:
     try:
-        earnings = client.list_earnings(date=today, limit=200)
-        for e in earnings:
-            if e.ticker in BROAD_EARNINGS_POOL and e.ticker not in CORE_TICKERS:
-                score = cream_score(e.ticker, "LONG", vol_mult, rsi, vwap_dist, air_gap_bonus=True)
-                if score >= 9.5:  # Lowered from 10.0
-                    c, prem, dte = get_contract(e.ticker, "LONG")
-                    if c and prem <= get_premium_cap():  # Dynamic premium cap
-                        earnings_tickers.add(e.ticker)
-    except: pass
-    return list(earnings_tickers)
+        if time.time() - last_heartbeat >= 300:
+            print(f"SCANNING {now().strftime('%H:%M PST')} | VIX thresh {get_dynamic_vix_threshold():.1f}")
+            last_heartbeat = time.time()
 
-def get_premium_cap():
-    vix = get_vix1d()
-    if vix < 18: return 0.25
-    elif vix < 22: return 0.30
-    else: return 0.35
+        # SKIP FIRST 15 MIN (Ripster rule)
+        if now().hour == 6 and now().minute < 45:
+            time.sleep(60)
+            continue
 
-def is_multiple_high_iv_week():
-    today = now()
-    start_of_week = today - timedelta(days=today.weekday())
-    end_of_week = start_of_week + timedelta(days=6)
-    try:
-        earnings = client.list_earnings(date__gte=start_of_week.strftime('%Y-%m-%d'),
-                                       date__lte=end_of_week.strftime('%Y-%m-%d'), limit=500)
-        high_iv_count = sum(1 for e in earnings if e.ticker in ["META", "AAPL", "AMZN", "GOOGL", "MSFT"])
-        return high_iv_count >= 2
-    except: return False
+        # DYNAMIC VIX CHECK
+        if safe_aggs("VIX1D", limit=1)[0].close < get_dynamic_vix_threshold():
+            time.sleep(300)
+            continue
 
-def cream_score_earnings_override(score):
-    if is_multiple_high_iv_week():
-        return max(score, 9.5)
-    return score
+        for t in TICKERS:
+            bars = safe_aggs(t, limit=100)
+            if len(bars) < 30: continue
+            b = bars[-1]
+            current_price = b.close
 
-def calculate_rsi(prices, period=14):
-    return talib.RSI(np.array(prices), period)[-1]
+            # 20-bar VWAP + volume
+            vwap = sum((x.vwap or x.close)*x.volume for x in bars[-20:]) / sum(x.volume for x in bars[-20:])
+            vol_mult = b.volume / (sum(x.volume for x in bars[-20:]) / 20)
 
-def calculate_vwap(bars):
-    typical_price = (bars['high'] + bars['low'] + bars['close']) / 3
-    vwap = (typical_price * bars['volume']).sum() / bars['volume'].sum()
-    return vwap
+            # RSI + 3-bar curl (Ripster curl confirmation)
+            gains = sum(max(x.close-x.open,0) for x in bars[-14:])
+            losses = sum(abs(x.close-x.open) for x in bars[-14:]) or 1
+            rsi = 100 - (100 / (1 + gains/losses))
+            rsi3 = [100 - (100 / (1 + sum(max(x.close-x.open,0) for x in bars[-14-i:-i]) /
+                                  (sum(abs(x.close-x.open) for x in bars[-14-i:-i]) or 1))) for i in range(1,4)]
+            rsi_curl_up = rsi3[0] > rsi3[1] > rsi3[2]
+            rsi_curl_down = rsi3[0] < rsi3[1] < rsi3[2]
 
-def get_air_gap_support(ticker, timespan="minute"):
-    bars = safe_aggs(ticker, limit=500, timespan=timespan)
-    if len(bars) < 30: return 0
-    ema_periods = [9, 21, 50, 200]
-    ema_values = []
-    for period in ema_periods:
-        ema = talib.EMA(np.array(bars['close']), period)[-1]
-        ema_values.append(ema)
-    return min(ema_values)
+            # EMA5 trend (cloud proxy)
+            ema5 = sum(b.close for b in bars[-5:]) / 5
 
-def get_lowest_time_frame_air_gap_support(ticker):
-    """
-    Enhanced Air Gap Identification: Prioritize the lowest time frame air gap as critical support.
-    """
-    bars = safe_aggs(ticker, limit=1000, timespan="minute")  # Increased limit for more precision
-    if len(bars) < 100: return 0
-    ema_periods = [5, 12, 34, 50]  # Focus on shorter-term EMAs for minute-level precision
-    ema_values = []
-    for period in ema_periods:
-        ema = talib.EMA(np.array(bars['close']), period)[-1]
-        ema_values.append(ema)
-    return min(ema_values)
+            # 15-min MTF slope
+            mtf = mtf_vwap_slope(t)
 
-def get_atr(bars, period=14):
-    high_low = bars['high'] - bars['low']
-    high_close = np.abs(bars['high'] - bars['close'].shift())
-    low_close = np.abs(bars['low'] - bars['close'].shift())
-    ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    true_range = np.nanmax(ranges, axis=1)
-    atr = talib.ATR(bars['high'], bars['low'], bars['close'], period)[-1]
-    return atr
+            if vol_mult < 2.65 or abs(current_price - vwap)/vwap < 0.0042:
+                continue
 
-def dynamic_position_size(ticker, base_size=100):
-    bars = safe_aggs(ticker, limit=100)
-    atr = get_atr(bars)
-    atr_percentage = (atr / bars['close'].iloc[-1]) * 100
-    if atr_percentage > 150:  # High volatility adjustment
-        return base_size * 0.5  # Reduce position size by 50%
-    return base_size
+            # LONG — FULL RIPSTER STACK
+            if (current_price > vwap and current_price > ema5 and rsi < 34 and 
+                rsi_curl_up and mtf >= 0 and b.low <= vwap <= current_price):
+                c, prem, mode = get_contract(t, "LONG")
+                if c and f"long_{t}" not in alerts_today:
+                    alerts_today.add(f"long_{t}")
+                    target = get_target_price(t, "LONG", current_price)
+                    send(f"{t} 0DTE LONG → ${prem}\nTarget ${target}\n{c}")
 
-def post_earnings_short_strategy(ticker):
-    """
-    Post-Earnings Short Strategy Enhancement: Refine shorting logic post-earnings misses.
-    """
-    bars = safe_aggs(ticker, limit=500, timespan="minute")
-    if len(bars) < 30: return False
-    current_price = bars['close'].iloc[-1]
-    air_gap_support = get_lowest_time_frame_air_gap_support(ticker)
-    if air_gap_support == 0: return False
-    earnings_date = get_earnings_date(ticker)
-    if not earnings_date or (now() - earnings_date).days > 1: return False  # Within 24 hours of earnings
-    # Check for gap down and proximity to air gap support
-    if current_price < bars['close'].iloc[-2] * 0.98 and current_price > air_gap_support * 0.95:
-        return True
-    return False
+            # SHORT — FULL RIPSTER STACK
+            if (current_price < vwap and current_price < ema5 and rsi > 66 and 
+                rsi_curl_down and mtf <= 0 and b.high >= vwap >= current_price):
+                c, prem, mode = get_contract(t, "SHORT")
+                if c and f"short_{t}" not in alerts_today:
+                    alerts_today.add(f"short_{t}")
+                    target = get_target_price(t, "SHORT", current_price)
+                    send(f"{t} 0DTE SHORT → ${prem}\nTarget ${target}\n{c}")
 
-def get_earnings_date(ticker):
-    try:
-        earnings = client.list_earnings(ticker=ticker, limit=1)
-        return datetime.strptime(earnings[0].date, '%Y-%m-%d') if earnings else None
-    except: return None
+        if now().hour >= 13 and not eod_sent:
+            send(f"EOD — {len(alerts_today)} RIPSTER-GRADE alerts today")
+            eod_sent = True
+        if now().hour == 1:
+            alerts_today.clear()
+            eod_sent = False
 
-def execute_trade(ticker, direction, size):
-    # Implementation for executing trades
-    pass
-
-@tasks.loop(seconds=10)
-async def trade_loop():
-    global last_pnl, last_trade_time, last_vix, last_earnings_check, trade_count, total_pnl, wins, losses
-    if not is_vix_threshold_met(): return
-    vix = get_vix1d()
-    if vix >= 24: return
-    manage_vix_hedge()
-    if (now() - last_earnings_check).total_seconds() > 3600:  # Check earnings every hour
-        last_earnings_check = now()
-        if is_earnings_season():
-            earnings_tickers = dynamic_earnings_tickers()
-            for ticker in earnings_tickers:
-                if post_earnings_short_strategy(ticker):
-                    air_gap_support = get_lowest_time_frame_air_gap_support(ticker)
-                    if air_gap_support > 0:
-                        size = dynamic_position_size(ticker, base_size=100)
-                        execute_trade(ticker, "SHORT", size)
-                        await send_discord_message(f"Short {ticker} at {now()} targeting air gap support {air_gap_support}")
-    for ticker in CORE_TICKERS:
-        bars = safe_aggs(ticker)
-        if len(bars) < 30: continue
-        current_price = bars['close'].iloc[-1]
-        air_gap_support = get_lowest_time_frame_air_gap_support(ticker)
-        if air_gap_support == 0: continue
-        # Enhanced logic for gap down scenarios
-        if current_price < bars['close'].iloc[-2] * 0.98 and current_price > air_gap_support * 0.95:
-            size = dynamic_position_size(ticker, base_size=100)
-            execute_trade(ticker, "SHORT", size)
-            await send_discord_message(f"Short {ticker} at {now()} targeting air gap support {air_gap_support}")
-
-async def send_discord_message(message):
-    channel = bot.get_channel(DISCORD_CHANNEL_ID)
-    if channel:
-        await channel.send(message)
-    if DISCORD_WEBHOOK_URL:
-        data = {"content": message}
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(DISCORD_WEBHOOK_URL, data=json.dumps(data), headers=headers)
-        if response.status_code != 204:
-            print(f"Failed to send webhook: {response.status_code}")
-
-@bot.event
-async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
-    trade_loop.start()
-
-bot.run(DISCORD_TOKEN)
+        time.sleep(300)
+    except Exception as e:
+        send(f"ERROR alive: {str(e)[:100]}")
+        time.sleep(300)
