@@ -1,6 +1,6 @@
 # ================================================================
-# BEHEMOTH 1.0 — FINAL STEALTH GOD TIER
-# 1 contract · $0.05–$0.10 · 0DTE only · No stop · EOD recap only
+# BEHEMOTH 1.0 — GOD TIER 2.0 FINAL (MAX $0.10 RISK)
+# 7.8+ CREAM · VIX1D explosion filter · Micro-sizing · Big-Gap multiplier
 # ================================================================
 
 import os, time, requests, pytz
@@ -19,14 +19,15 @@ if not DISCORD_WEBHOOK: exit("Set DISCORD_WEBHOOK_URL!")
 TICKERS = ["NVDA","TSLA","AMD","SMCI","MSTR","COIN","SOXL","PLTR","AVGO","META","SPY","QQQ"]
 
 alerts_today = set()
-daily_pnl = 0.0
 current_position = None
+last_heartbeat = 0
 eod_sent = False
+vix1d_20day_avg = 18.0
 pst = pytz.timezone('America/Los_Angeles')
 def now(): return datetime.now(pst)
 
 def send(msg):
-    requests.post(DISCORD_WEBHOOK, json={"content": f"**BEHEMOTH STEALTH** | {now().strftime('%H:%M PST')}\n```{msg}```"})
+    requests.post(DISCORD_WEBHOOK, json={"content": f"**GOD TIER 2.0** | {now().strftime('%H:%M PST')}\n```{msg}```"})
 
 def safe_aggs(ticker, mult=1, ts="minute", lim=100):
     try:
@@ -37,28 +38,27 @@ def safe_aggs(ticker, mult=1, ts="minute", lim=100):
         try: return client.get_aggs(ticker, mult, ts, limit=limit)
         except: return []
 
-def market_bias():
-    vix = safe_aggs("VIX",1,"day",3)
-    vix1d = safe_aggs("VIX1D",1,"day",3)
-    if len(vix)<2 or len(vix1d)<2: return "BOTH"
-    change = (vix1d[-1].close / vix1d[-2].close - 1)
-    if vix[-1].close < 22 or change < -0.08: return "CALLS_ONLY"
-    elif vix[-1].close > 26 or change > 0.12: return "PUTS_ONLY"
-    else: return "BOTH"
+def vix1d_explosion():
+    global vix1d_20day_avg
+    vix1d = safe_aggs("VIX1D",1,"day",22)
+    if len(vix1d) < 21: return False
+    vix1d_20day_avg = sum(b.close for b in vix1d[-21:-1]) / 20
+    today = vix1d[-1].close
+    return today > vix1d_20day_avg * 1.50   # 150%+ spike = nuclear gamma
 
 def mtf_air_gap(ticker):
     try:
         bars15 = safe_aggs(ticker,15,"minute",20)
-        if len(bars15)<2: return 0, False
+        if len(bars15)<2: return 0, 1.0
         prev, curr = bars15[-2], bars15[-1]
         price = safe_aggs(ticker,1,"minute",1)[-1].close
         gap_size = abs(price - (prev.high if price>prev.high else prev.low))
         prev_range = prev.high-prev.low
-        bonus = gap_size > prev_range*0.5
-        if price > prev.high and curr.low > prev.high: return 1, bonus
-        if price < prev.low and curr.high < prev.low: return -1, bonus
-        return 0, False
-    except: return 0, False
+        bonus_multiplier = max(1.0, gap_size / (prev_range * 0.5))  # 1.0–3.0x
+        if price > prev.high and curr.low > prev.high: return 1, bonus_multiplier
+        if price < prev.low and curr.high < prev.low: return -1, bonus_multiplier
+        return 0, 1.0
+    except: return 0, 1.0
 
 def get_contract(ticker, direction):
     exp = now().strftime('%Y-%m-%d')
@@ -93,20 +93,28 @@ def cream_score(ticker, direction, vol_mult, rsi, vwap_dist, big_bonus):
     if big_bonus: score += 3.0
     return min(score, 10)
 
+def dynamic_size(cream):
+    base = 1
+    if cream >= 9.0: return 5
+    if cream >= 8.6: return 4
+    if cream >= 8.3: return 3
+    if cream >= 8.0: return 2
+    return base
+
 def check_exit():
-    global current_position, daily_pnl
+    global current_position
     if not current_position: return
     try:
         q = client.get_option_quote(current_position['contract'])
         bid = q.bid or 0
         entry = current_position['entry']
         if bid >= entry * 2.0:
-            pnl = 100 * (bid - entry)
-            daily_pnl += pnl
+            pnl = current_position['size'] * 100 * (bid - entry)
+            send(f"GOD TIER EXIT {current_position['ticker']} +100% @ ${bid:.3f} | P&L ${pnl:,.0f}")
             current_position = None
     except: pass
 
-send("BEHEMOTH 1.0 — STEALTH GOD TIER — LIVE (EOD recap only)")
+send("BEHEMOTH 1.0 — GOD TIER 2.0 FINAL — LIVE")
 while True:
     try:
         check_exit()
@@ -114,6 +122,8 @@ while True:
         if now().weekday() >= 5 or now().hour < 6 or now().hour >= 13:
             time.sleep(300)
             continue
+
+        explosion = vix1d_explosion()
 
         for t in TICKERS:
             if current_position: break
@@ -128,17 +138,28 @@ while True:
             rsi = 100 - 100/(1 + gains/losses)
             vwap_dist = abs(price-vwap)/vwap
 
-            gap_dir, big_bonus = mtf_air_gap(t)
-            score_l = cream_score(t,"LONG",vol_mult,rsi,vwap_dist, gap_dir==1 and big_bonus)
-            score_s = cream_score(t,"SHORT",vol_mult,rsi,vwap_dist, gap_dir==-1 and big_bonus)
+            gap_dir, gap_mult = mtf_air_gap(t)
+            score = cream_score(t,"LONG" if gap_dir==1 else "SHORT",vol_mult,rsi,vwap_dist, gap_dir!=0)
 
-            bias = market_bias()
-
-            if score_l >= 7.8 and price > vwap and rsi < 36 and f"long_{t}" not in alerts_today:
-                if bias in ["CALLS_ONLY", "BOTH"]:
-                    c,prem = get_contract(t,"LONG")
+            if score >= 7.8 and ((gap_dir==1 and price > vwap and rsi < 36) or (gap_dir==-1 and price < vwap and rsi > 64)):
+                if explosion or score >= 8.0:  # only fire in explosion or high confidence
+                    c,prem = get_contract(t,"LONG" if gap_dir==1 else "SHORT")
                     if c and prem <= 0.10:
                         time.sleep(900)
                         try: fill = client.get_option_quote(c).bid or prem
                         except: fill = prem
-                        if fill <= 0.
+                        if fill <= 0.10:
+                            size = int(dynamic_size(score) * gap_mult)
+                            current_position = {'ticker':t,'contract':c,'entry':fill,'size':size}
+                            send(f"GOD TIER {t} {'CALL' if gap_dir==1 else 'PUT'} ★CREAM {score:.1f}★ [{size} contracts]\n{c} filled ${fill:.3f}\nVIX explosion: {explosion}")
+
+        if now().hour == 13 and now().minute < 5 and not eod_sent:
+            send(f"EOD · {len(alerts_today)} scalps today")
+            eod_sent = True
+        if now().hour == 1:
+            alerts_today.clear(); current_position = None; eod_sent = False
+
+        time.sleep(60)
+    except Exception as e:
+        send(f"GOD TIER ERROR: {str(e)[:100]}")
+        time.sleep(60)
