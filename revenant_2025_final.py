@@ -67,6 +67,22 @@ def is_earnings_week(ticker):
     active_dates = ["2025-12-11", "2025-12-12", "2025-12-18"]
     return any(ticker in EARNINGS_NEXT_WEEK.get(date, []) for date in active_dates if date <= today)
 
+
+# ONLY RUN DURING REGULAR MARKET HOURS (6:30 AM – 1:00 PM PST)
+def is_market_hours():
+    n = now()
+    if n.weekday() >= 5:                  # Saturday or Sunday
+        return False
+    hour = n.hour
+    minute = n.minute
+    if hour < 6 or hour > 13:             # outside 6–13
+        return False
+    if hour == 6 and minute < 30:         # before 6:30
+        return False
+    if hour == 13 and minute > 0:         # after 1:00 PM
+        return False
+    return True
+    
 def mtf_air_gap(ticker):
     try:
         bars15 = safe_aggs(ticker,15,"minute",20)
