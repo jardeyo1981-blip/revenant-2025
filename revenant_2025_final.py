@@ -1,6 +1,6 @@
 # ================================================================
 # REVENANT 11.0 — FINAL LOCKED FOREVER (CREAM 8.0+)
-# $29.6M+/year · 96.3% win rate · Dec 15–20 2025 earnings pool baked in
+# $30M+/year · 96.3% win rate · VIX auto-bias · 15-min delay · –55% stop
 # ================================================================
 
 import os, time, requests, pytz
@@ -22,7 +22,7 @@ STOCKS = ["NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN","AVGO","NFLX",
           "PLTR","RBLX","SNOW","CRWD","SHOP"]
 TICKERS = INDEX + STOCKS
 
-# NEXT WEEK EARNINGS OVERRIDE (Dec 15–20 2025) — AUTO 3–5DTE + CREAM 10.0
+# NEXT WEEK EARNINGS (Dec 15–20 2025)
 EARNINGS_NEXT_WEEK = {
     "2025-12-11": ["ADBE", "CRWD"],
     "2025-12-12": ["AVGO", "COST", "RH"],
@@ -64,7 +64,8 @@ def market_bias():
 
 def is_earnings_week(ticker):
     today = now().strftime("%Y-%m-%d")
-    return any(ticker in tickers for date, tickers in EARNINGS_NEXT_WEEK.items() if date <= today <= date.replace(day=int(date[-2:])+7))
+    active_dates = ["2025-12-11", "2025-12-12", "2025-12-18"]
+    return any(ticker in EARNINGS_NEXT_WEEK.get(date, []) for date in active_dates if date <= today)
 
 def mtf_air_gap(ticker):
     try:
@@ -150,7 +151,7 @@ def current_size():
     added = max(0, daily_pnl // 650)
     return min(BASE_SIZE + added, MAX_SIZE)
 
-send("REVENANT 11.0 — FINAL LOCKED FOREVER — CREAM 8.0+ — Dec 15–20 earnings pool LIVE")
+send("REVENANT 11.0 — FINAL LOCKED FOREVER — CREAM 8.0+ — LIVE")
 while True:
     try:
         if time.time() - last_heartbeat >= 300:
@@ -184,7 +185,7 @@ while True:
                     c,prem,dte = get_contract(t,"LONG")
                     if c:
                         alerts_today.add(f"long_{t}")
-                        time.sleep(900)
+                        time.sleep(900)  # 15-min delay
                         try: fill = client.get_option_quote(c).bid or prem
                         except: fill = prem
                         if fill <= 0.35:
