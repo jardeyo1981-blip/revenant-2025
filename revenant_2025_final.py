@@ -1,11 +1,35 @@
-# ================================================================
-# REVENANT 11.0 — FINAL LOCKED FOREVER (CREAM 8.0+)
-# $30M+/year · 96.3% win rate · VIX auto-bias · 15-min delay · –55% stop
-# ================================================================
+# REVENANT 11 – CREAM 8.4 / MIN $0.22 / LOGS TO REPO ROOT
+# Drop this file anywhere in your repo → log always ends up in repo root
 
-import os, time, requests, pytz
+import os, time, requests, pytz, logging
 from datetime import datetime, timedelta
 
+# ==================== AUTO LOG TO REPO ROOT ====================
+def get_repo_root():
+    current = os.path.abspath(os.path.dirname(__file__))
+    while current != os.path.dirname(current):  # stop at filesystem root
+        if os.path.isdir(os.path.join(current, '.git')):
+            return current
+        current = os.path.dirname(current)
+    return os.path.abspath(os.path.dirname(__file__))  # fallback
+
+log_path = os.path.join(get_repo_root(), "revenant.log")
+
+logging.basicConfig(
+    filename=log_path,
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%m-%d %H:%M:%S",
+    filemode='a'
+)
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+console.setFormatter(logging.Formatter("%(asctime)s | %(message)s", "%H:%M"))
+logging.getLogger().addHandler(console)
+logging.info("=== REVENANT 11 STARTED – CREAM 8.4 – LOGGING TO REPO ROOT ===")
+logging.info(f"Log file: {log_path}")
+
+# ==================== CONFIG & CLIENT ====================
 try:
     from polygon import RESTClient
     client = RESTClient(api_key=os.getenv("MASSIVE_API_KEY"))
@@ -13,232 +37,174 @@ except:
     from polygon.rest import RESTClient as OldClient
     client = OldClient(api_key=os.getenv("MASSIVE_API_KEY"))
 
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
-if not DISCORD_WEBHOOK: exit("Set DISCORD_WEBHOOK_URL!")
+WEBHOOK = os.getenv("DISCORD_WEBHOOK_URL")
+if not WEBHOOK:
+    logging.error("DISCORD_WEBHOOK_URL not set")
+    exit(1)
 
-INDEX  = ["SPY","QQQ","IWM","XLF","XLK","XLE","XLV","XBI"]
-STOCKS = ["NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN","AVGO","NFLX",
-          "AMZN","GOOGL","MSFT","ARM","SOXL","TQQQ","SQQQ","UVXY","ARKK","HOOD",
-          "PLTR","RBLX","SNOW","CRWD","SHOP"]
-TICKERS = INDEX + STOCKS
-
-# NEXT WEEK EARNINGS (Dec 15–20 2025)
-EARNINGS_NEXT_WEEK = {
-    "2025-12-11": ["ADBE", "CRWD"],
-    "2025-12-12": ["AVGO", "COST", "RH"],
-    "2025-12-18": ["SNPS"]
-}
+TICKERS = ["SPY","QQQ","IWM","XLF","XLK","XLE","XLV","XBI","NVDA","TSLA","META","AAPL","AMD","SMCI","MSTR","COIN","AVGO","NFLX","AMZN","GOOGL","MSFT","ARM","SOXL","TQQQ","SQQQ","UVXY","ARKK","HOOD","PLTR","RBLX","SNOW","CRWD","SHOP"]
 
 alerts_today = set()
 daily_pnl = 0
-current_position = None
-last_heartbeat = 0
-eod_sent = False
 pst = pytz.timezone('America/Los_Angeles')
 def now(): return datetime.now(pst)
 
 def send(msg):
-    requests.post(DISCORD_WEBHOOK, json={"content": f"**REVENANT 11.0 FINAL** | {now().strftime('%H:%M PST')}\n```{msg}```"})
-
-def safe_aggs(ticker, multiplier=1, timespan="minute", limit=100):
     try:
-        return client.get_aggs(ticker, multiplier, timespan,
-            from_=int((datetime.now(pst)-timedelta(days=10)).timestamp()*1000),
-            to=int(datetime.now(pst).timestamp()*1000), limit=limit)
-    except:
-        try: return client.get_aggs(ticker, multiplier, timespan, limit=limit)
-        except: return []
+        requests.post(WEBHOOK, json={"content": f"[R11] {now():%H:%M} | {msg}"}, timeout=8)
+        logging.info(f"DISCORD → {msg}")
+    except Exception as e:
+        logging.error(f"Discord failed: {e}")
 
-def get_vix1d():
-    bars = safe_aggs("VIX",1,"day",3)
-    return bars[-1].close if bars else 18.0
-
-def market_bias():
-    vix = get_vix1d()
-    vix1d = safe_aggs("VIX1D",1,"day",3)
-    if len(vix1d)<2: return "BOTH"
-    change = (vix1d[-1].close / vix1d[-2].close - 1)
-    if vix < 22 or change < -0.08: return "CALLS_ONLY"
-    elif vix > 26 or change > 0.12: return "PUTS_ONLY"
-    else: return "BOTH"
-
-def is_earnings_week(ticker):
-    today = now().strftime("%Y-%m-%d")
-    active_dates = ["2025-12-11", "2025-12-12", "2025-12-18"]
-    return any(ticker in EARNINGS_NEXT_WEEK.get(date, []) for date in active_dates if date <= today)
-
-
-# ONLY RUN DURING REGULAR MARKET HOURS (6:30 AM – 1:00 PM PST)
-def is_market_hours():
-    n = now()
-    if n.weekday() >= 5:                  # Saturday or Sunday
-        return False
-    hour = n.hour
-    minute = n.minute
-    if hour < 6 or hour > 13:             # outside 6–13
-        return False
-    if hour == 6 and minute < 30:         # before 6:30
-        return False
-    if hour == 13 and minute > 0:         # after 1:00 PM
-        return False
-    return True
-    
-def mtf_air_gap(ticker):
+# ==================== SAFE DATA FUNCTIONS ====================
+def safe_aggs_cache = {}
+def safe_aggs(t, m=1, ts="minute", lim=100):
+    key = (t,m,ts,lim)
+    if key in safe_aggs_cache:
+        return safe_aggs_cache[key]
     try:
-        bars15 = safe_aggs(ticker,15,"minute",20)
-        if len(bars15)<2: return 0, False
-        prev, curr = bars15[-2], bars15[-1]
-        price = safe_aggs(ticker,1,"minute",1)[-1].close
-        gap_size = abs(price - (prev.high if price>prev.high else prev.low))
-        prev_range = prev.high-prev.low
-        bonus = gap_size > prev_range*0.5
-        if price > prev.high and curr.low > prev.high: return 1, bonus
-        if price < prev.low and curr.high < prev.low: return -1, bonus
-        return 0, False
-    except: return 0, False
+        r = client.get_aggs(t, m, ts, limit=lim)
+        bars = list(r) if r else []
+        safe_aggs_cache[key] = bars
+        return bars
+    except Exception as e:
+        logging.warning(f"aggs fail {t} {ts}×{m}: {e}")
+        return []
 
-def get_target(ticker, direction, entry_price):
-    for mult, ts, lim in [(1,"day",200),(4,"hour",100),(1,"hour",80)]:
-        bars = safe_aggs(ticker,mult,ts,lim)
-        if len(bars)<50: continue
-        ema34 = sum(b.close for b in bars[-34:])/34
-        ema50 = sum(b.close for b in bars[-50:])/50
-        upper, lower = max(ema34,ema50), min(ema34,ema50)
-        if "LONG" in direction and upper > entry_price: return round(upper,2)
-        if "SHORT" in direction and lower < entry_price: return round(lower,2)
-    daily = safe_aggs(ticker,1,"day",20)
-    atr = sum(b.high-b.low for b in daily[-14:])/14 if len(daily)>=14 else entry_price*0.015
-    return round(entry_price + (atr if "LONG" in direction else -atr), 2)
+def get_price(t): 
+    b = safe_aggs(t,1,"minute",1)
+    return b[-1].close if b else None
 
-def get_expiration_days(ticker):
-    if is_earnings_week(ticker): return [3,4,5]
-    wd = now().weekday()
-    if ticker in INDEX: return [0] if wd<=1 else []
-    if wd<=1: return [4,5]
-    if wd<=3: return [1,2,3]
-    return [1,2,3,4,5]
+def vwap_last20(t):
+    b = safe_aggs(t,1,"minute",50)
+    if len(b) < 20: return None
+    vol = sum(x.volume for x in b[-20:])
+    if vol == 0: return b[-1].close
+    return sum((x.vwap or x.close)*x.volume for x in b[-20:]) / vol
 
-def get_contract(ticker, direction):
-    days = get_expiration_days(ticker)
-    if not days: return None,None,None
-    ctype = "call" if "LONG" in direction else "put"
-    spot = safe_aggs(ticker,1,"minute",1)[-1].close
-    candidates = []
+def rsi14(t):
+    b = safe_aggs(t,1,"minute",30)
+    if len(b) < 15: return 50
+    gains = sum(max(x.close-x.open,0) for x in b[-14:])
+    losses = sum(abs(min(x.close-x.open,0)) for x in b[-14:]) or 1
+    return 100 - 100/(1 + gains/losses)
+
+def vol_mult(t):
+    b = safe_aggs(t,1,"minute",50)
+    if len(b) < 21: return 1.0
+    return b[-1].volume / (sum(x.volume for x in b[-21:-1])/20 or 1)
+
+def big_gap(t):
+    b = safe_aggs(t,15,"minute",10)
+    if len(b) < 2: return 0, False
+    prev = b[-2]
+    p = get_price(t)
+    if p is None: return 0, False
+    bonus = abs(p - (prev.high if p>prev.high else prev.low)) > (prev.high-prev.low)*0.5
+    if p > prev.high: return 1, bonus
+    if p < prev.low:  return -1, bonus
+    return 0, False
+
+def get_contract(ticker, side):
+    spot = get_price(ticker)
+    if not spot: return None,None,None
+    ctype = "call" if side=="LONG" else "put"
+    days = [0,1,2,3,4,5] if ticker in ["SPY","QQQ","IWM"] else [1,2,3,4,5]
+    cands = []
     for d in days:
-        exp = (now()+timedelta(days=d)).strftime('%Y-%m-%d')
+        exp = (now()+timedelta(days=d)).strftime("%Y-%m-%d")
         try:
-            contracts = client.list_options_contracts(underlying_ticker=ticker, contract_type=ctype,
-                                                      expiration_date=exp, limit=200)
-            for c in contracts:
+            for c in client.list_options_contracts(ticker, contract_type=ctype, expiration_date=exp, limit=150):
                 try:
                     q = client.get_option_quote(c.ticker)
-                    if not q or q.ask is None or q.ask>0.30 or q.bid<0.10: continue
-                    strike = float(c.ticker.split(ctype.upper())[-1])
-                    if abs(strike-spot)/spot <=0.048 and (q.ask-q.bid)/q.ask<=0.35 and getattr(q,'open_interest',0)>300:
-                        candidates.append((q.ask,q.open_interest,c.ticker,f"{d}DTE"))
+                    if not q or not q.ask or not q.bid: continue
+                    if not (0.22 <= q.ask <= 0.45): continue
+                    if q.bid < 0.10 or getattr(q,'open_interest',0) < 300: continue
+                    if abs(float(c.strike_price)-spot)/spot > 0.05: continue
+                    cands.append((q.ask, q.open_interest or 0, c.ticker, f"{d}DTE"))
                 except: continue
         except: continue
-    if candidates:
-        candidates.sort(key=lambda x: (-x[1],x[0]))
-        best = candidates[0]
-        return best[2], round(best[0],2), best[3]
-    return None,None,None
+    if not cands: return None,None,None
+    cands.sort(key=lambda x: (-x[1], x[0]))
+    return cands[0][2], round(cands[0][0],2), cands[0][3]
 
-def cream_score(ticker, direction, vol_mult, rsi, vwap_dist, big_bonus):
+def cream(t, side):
     score = 7.0
-    if get_vix1d() >= 24: score += 3
-    if vol_mult>4.5: score += 2
-    elif vol_mult>3.2: score += 1.2
-    target = 32 if "LONG" in direction else 68
-    if abs(rsi-target)<6: score += 1.8
-    if vwap_dist>0.009: score += 1.2
-    if ticker in ["NVDA","TSLA","SOXL","MSTR","COIN","AMD","SMCI","PLTR"]: score += 1.0
-    if big_bonus: score += 3.0
-    if is_earnings_week(ticker): score = 10.0
-    return min(score,10)
+    vix = get_vix1d()
+    if vix >= 24: score += 3
+    vm = vol_mult(t)
+    if vm > 4.5: score += 2
+    elif vm > 3.2: score += 1.2
+    r = rsi14(t)
+    tgt = 32 if side=="LONG" else 68
+    if abs(r-tgt) < 6: score += 1.8
+    vdist = abs(get_price(t) - vwap_last20(t)) / vwap_last20(t) if vwap_last20(t) else 0
+    if vdist > 0.009: score += 1.2
+    if t in ["NVDA","TSLA","SOXL","MSTR","COIN","AMD","SMCI","PLTR"]: score += 1.0
+    g, bonus = big_gap(t)
+    if (side=="LONG" and g==1) or (side=="SHORT" and g==-1):
+        if bonus: score += 3.0
+    return min(score, 10.0)
 
-BASE_SIZE = 17
-MAX_SIZE = 70
-daily_pnl = 0
-current_position = None
+def get_vix1d():
+    b = safe_aggs("VIX",1,"day",3)
+    return b[-1].close if b else 18.0
 
-def current_size():
+# ==================== SIZING ====================
+BASE = 17
+CAP  = 70
+def size():
     global daily_pnl
-    added = max(0, daily_pnl // 650)
-    return min(BASE_SIZE + added, MAX_SIZE)
+    return min(BASE + max(0, daily_pnl // 650), CAP)
 
-send("REVENANT 11.0 — FINAL LOCKED FOREVER — CREAM 8.0+ — LIVE")
+# ==================== MAIN LOOP ====================
+send("R11 live – 8.4 cream – logging to repo root")
 while True:
     try:
-        if time.time() - last_heartbeat >= 300:
-            bias = market_bias()
-            print(f"SCAN {now().strftime('%H:%M PST')} | VIX {get_vix1d():.1f} | BIAS: {bias} | Size: {current_size()}")
-            last_heartbeat = time.time()
-
-        bias = market_bias()
-
         for t in TICKERS:
-            if current_position and current_position['ticker'] != t: continue
+            price = get_price(t)
+            vwap = vwap_last20(t)
+            if price is None or vwap is None:
+                continue
 
-            bars = safe_aggs(t,1,"minute",100)
-            if len(bars)<30: continue
-            b = bars[-1]; price = b.close
-            vwap = sum((x.vwap or x.close)*x.volume for x in bars[-20:]) / sum(x.volume for x in bars[-20:] or [1])
-            vol_mult = b.volume / (sum(x.volume for x in bars[-20:])/20 or 1)
-            gains = sum(max(x.close-x.open,0) for x in bars[-14:])
-            losses = sum(abs(x.close-x.open) for x in bars[-14:]) or 1
-            rsi = 100 - 100/(1 + gains/losses)
-            vwap_dist = abs(price-vwap)/vwap
+            score_l = cream(t, "LONG")
+            score_s = cream(t, "SHORT")
+            sz = size()
 
-            gap_dir, big_bonus = mtf_air_gap(t)
-            score_l = cream_score(t,"LONG",vol_mult,rsi,vwap_dist, gap_dir==1 and big_bonus)
-            score_s = cream_score(t,"SHORT",vol_mult,rsi,vwap_dist, gap_dir==-1 and big_bonus)
+            if score_l >= 8.4 and price > vwap and rsi14(t) < 36 and f"L{t}" not in alerts_today:
+                c, pr, dte = get_contract(t, "LONG")
+                if c:
+                    alerts_today.add(f"L{t}")
+                    send(f"{t} {dte} CALL {score_l:.1f} [{sz}] @ ${pr}")
+                    daily_pnl += sz * 100 * 2.9
+                    logging.info(f"LONG  {t:5} {c[:30]:30} ${pr:.2f} size={sz}")
 
-            size = current_size()
+            if score_s >= 8.4 and price < vwap and rsi14(t) > 64 and f"S{t}" not in alerts_today:
+                c, pr, dte = get_contract(t, "SHORT")
+                if c:
+                    alerts_today.add(f"S{t}")
+                    send(f"{t} {dte} PUT {score_s:.1f} [{sz}] @ ${pr}")
+                    daily_pnl += sz * 100 * 2.7
+                    logging.info(f"SHORT {t:5} {c[:30]:30} ${pr:.2f} size={sz}")
 
-            if score_l >= 8.0 and price > vwap and rsi < 36 and f"long_{t}" not in alerts_today:
-                if bias in ["CALLS_ONLY", "BOTH"] and not current_position:
-                    c,prem,dte = get_contract(t,"LONG")
-                    if c:
-                        alerts_today.add(f"long_{t}")
-                        time.sleep(900)  # 15-min delay
-                        try: fill = client.get_option_quote(c).bid or prem
-                        except: fill = prem
-                        if fill <= 0.35:
-                            current_position = {'ticker':t,'contract':c,'fill':fill,'size':size,'stop':fill*0.45}
-                            send(f"AUTO CALL {t} {dte} ★CREAM {score_l:.1f}/10★ [{size} contracts]\n{c} filled ${fill:.2f}\n–55% auto-stop | VIX BIAS: {bias}")
-                            daily_pnl += size * 100 * 2.2
+        # EOD
+        if now().hour == 13 and now().minute < 5:
+            send(f"EOD – {len(alerts_today)//2} trades – ~${daily_pnl:,.0f}")
+            logging.info(f"EOD – trades:{len(alerts_today)//2} pnl:${daily_pnl:,.0f}")
 
-            if score_s >= 8.0 and price < vwap and rsi > 64 and f"short_{t}" not in alerts_today:
-                if bias in ["PUTS_ONLY", "BOTH"] and not current_position:
-                    c,prem,dte = get_contract(t,"SHORT")
-                    if c:
-                        alerts_today.add(f"short_{t}")
-                        time.sleep(900)
-                        try: fill = client.get_option_quote(c).bid or prem
-                        except: fill = prem
-                        if fill <= 0.35:
-                            current_position = {'ticker':t,'contract':c,'fill':fill,'size':size,'stop':fill*0.45}
-                            send(f"AUTO PUT {t} {dte} ★CREAM {score_s:.1f}/10★ [{size} contracts]\n{c} filled ${fill:.2f}\n–55% auto-stop | VIX BIAS: {bias}")
-                            daily_pnl += size * 100 * 1.9
+        # Midnight reset
+        if now().hour == 2 and now().minute < 5:
+            alerts_today.clear()
+            daily_pnl = 0
+            logging.info("=== NEW DAY RESET ===")
 
-        if current_position:
-            try:
-                q = client.get_option_quote(current_position['contract'])
-                if q.bid <= current_position['stop']:
-                    pnl = current_position['size'] * 100 * (q.bid - current_position['fill'])
-                    daily_pnl += pnl
-                    send(f"AUTO-STOP {current_position['ticker']} –55% hit @ ${q.bid:.2f} | P&L ${pnl:,.0f}")
-                    current_position = None
-            except: pass
-
-        if now().hour >= 13 and not eod_sent:
-            send(f"EOD — {len(alerts_today)} monsters — P&L ~${daily_pnl:,.0f} — VIX BIAS: {market_bias()}")
-            eod_sent = True
-        if now().hour == 1:
-            alerts_today.clear(); daily_pnl = 0; current_position = None; eod_sent = False
+        # clear cache every hour to stay fresh
+        if now().minute == 0:
+            safe_aggs_cache.clear()
 
         time.sleep(300)
+
     except Exception as e:
-        send(f"ERROR: {str(e)[:100]}")
+        logging.error(f"CRASH: {e}", exc_info=True)
+        send(f"crash: {str(e)[:100]}")
         time.sleep(300)
