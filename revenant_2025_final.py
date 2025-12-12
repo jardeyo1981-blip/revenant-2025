@@ -1,4 +1,4 @@
-# REVENANT 2025 — FINAL CLEAN — RUNS FIRST TRY
+# REVENANT 2025 — OLD ALERTS ARE BACK BABY
 import os, time, requests, pytz, logging
 from datetime import datetime, timedelta
 
@@ -23,9 +23,11 @@ daily_pnl = 0
 pst = pytz.timezone('America/Los_Angeles')
 def now(): return datetime.now(pst)
 
-def send(m):
-    try: requests.post(WEBHOOK, json={"content": f"[R25] {now():%H:%M} | {m}"}, timeout=8)
-    except: pass
+def send(msg):
+    try:
+        requests.post(WEBHOOK, json={"content": msg}, timeout=10)
+    except:
+        pass
 
 def safe_aggs(t, m=1, ts="minute", lim=100):
     try: return list(client.get_aggs(t, m, ts, limit=lim)) if client.get_aggs(t, m, ts, limit=lim) else []
@@ -36,7 +38,7 @@ def vwap20(t):
     b = safe_aggs(t,1,"minute",50)
     if len(b) < 20: return None
     vol = sum(x.volume for x in b[-20:])
-    return sum((x.vwap or x.close)*x.volume for x in b[-20]) / vol if vol else b[-1].close
+    return sum((x.vwap or x.close)*x.volume for x in b[-20:]) / vol if vol else b[-1].close
 
 def rsi14(t):
     b = safe_aggs(t,1,"minute",30)
@@ -44,6 +46,15 @@ def rsi14(t):
     gains = sum(max(x.close-x.open,0) for x in b[-14:])
     losses = sum(abs(min(x.close-x.open,0)) for x in b[-14:]) or 1
     return 100 - 100/(1 + gains/losses)
+
+def big_gap(t):
+    b = safe_aggs(t,15,"minute",10)
+    if len(b) < 2: return 0, False
+    prev = b[-2]
+    p = get_price(t)
+    if not p: return 0, False
+    bonus = abs(p - (prev.high if p>prev.high else prev.low)) > (prev.high-prev.low)*0.5
+    return (1 if p>prev.high else -1 if p<prev.low else 0), bonus
 
 def cream(t, side):
     score = 7.0
@@ -59,15 +70,6 @@ def cream(t, side):
     if (side=="LONG" and g==1) or (side=="SHORT" and g==-1):
         if bonus: score += 3.0
     return min(score, 10.0)
-
-def big_gap(t):
-    b = safe_aggs(t,15,"minute",10)
-    if len(b) < 2: return 0, False
-    prev = b[-2]
-    p = get_price(t)
-    if not p: return 0, False
-    bonus = abs(p - (prev.high if p>prev.high else prev.low)) > (prev.high-prev.low)*0.5
-    return (1 if p>prev.high else -1 if p<prev.low else 0), bonus
 
 def get_vix1d():
     b = safe_aggs("VIX",1,"day",3)
@@ -93,11 +95,12 @@ def get_contract(t, side):
     return cands[0][2], round(cands[0][0],2), cands[0][3]
 
 BASE, CAP = 17, 70
-def size(): 
+def size():
     global daily_pnl
     return min(BASE + max(0, daily_pnl // 650), CAP)
 
-send("REVENANT 2025 LIVE")
+send("**REVENANT 11.0** — OLD ALERTS RESTORED — READY")
+
 while True:
     try:
         for t in TICKERS:
@@ -106,18 +109,28 @@ while True:
             if not p or not v: continue
             sz = size()
 
+            # LONG
             if cream(t,"LONG") >= 8.4 and p > v and rsi14(t) < 36 and f"L{t}" not in alerts_today:
                 c, pr, dte = get_contract(t,"LONG")
                 if c:
                     alerts_today.add(f"L{t}")
-                    send(f"{t} {dte} CALL {cream(t,'LONG'):.1f} [{sz}] @ ${pr}")
+                    g, bonus = big_gap(t)
+                    gap_tag = " ★BIG-GAP★" if bonus else ""
+                    target = round(p * 1.048, 2)
+                    est = round(((target-p)/p)*400)
+                    send(f"**REVENANT 11.0** | {now():%H:%M} PST\n**{t} {dte} CALL ★CREAM {cream(t,'LONG'):.1f}{gap_tag} [{sz} contracts]**\n{c} @ ${pr}\n**Target ${target} → +{est}% est**\nROLLING — RIDE TO VALHALLA")
                     daily_pnl += sz * 100 * 2.9
 
+            # SHORT
             if cream(t,"SHORT") >= 8.4 and p < v and rsi14(t) > 64 and f"S{t}" not in alerts_today:
                 c, pr, dte = get_contract(t,"SHORT")
                 if c:
                     alerts_today.add(f"S{t}")
-                    send(f"{t} {dte} PUT {cream(t,'SHORT'):.1f} [{sz}] @ ${pr}")
+                    g, bonus = big_gap(t)
+                    gap_tag = " ★BIG-GAP★" if bonus else ""
+                    target = round(p * 0.952, 2)
+                    est = round(((p-target)/p)*400)
+                    send(f"**REVENANT 11.0** | {now():%H:%M} PST\n**{t} {dte} PUT ★CREAM {cream(t,'SHORT'):.1f}{gap_tag} [{sz} contracts]**\n{c} @ ${pr}\n**Target ${target} → +{est}% est**\nROLLING — RIDE TO VALHALLA")
                     daily_pnl += sz * 100 * 2.7
 
         if now().hour == 2:
@@ -126,6 +139,5 @@ while True:
 
         time.sleep(300)
     except Exception as e:
-        logging.error(f"ERROR: {e}")
-        send(f"crash {e}")
+        send(f"ERROR — {e}")
         time.sleep(300)
